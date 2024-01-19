@@ -1,0 +1,27 @@
+gradle_app {
+    name: "UDiscoveryService",
+    certificate: "platform",
+    libs: [
+        "info3",
+        "framework",
+        "android.car",
+        "privapp-permissions-com.ultifi.core.udiscovery.xml",
+    ],
+    tasks: ["assembleRelease"],
+    privileged: true,
+    stem: "UDiscoveryService.apk",
+    debuggable: {
+        tasks: ["assembleDebug"],
+        gradleapk: "outputs/apk/debug/UDiscoveryService-debug.apk",
+    },
+    gradleapk: "outputs/apk/release/UDiscoveryService-release.apk",
+    required: [
+        "privapp-permissions-com.ultifi.core.udiscovery.xml",
+    ],
+}
+
+prebuilt_etc {
+    name: "privapp-permissions-com.ultifi.core.udiscovery.xml",
+    sub_dir: "permissions",
+    src: "privapp-permissions-com.ultifi.core.udiscovery.xml",
+}
