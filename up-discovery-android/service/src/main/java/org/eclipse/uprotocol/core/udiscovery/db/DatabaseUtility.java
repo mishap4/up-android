@@ -24,6 +24,7 @@
 
 package org.eclipse.uprotocol.core.udiscovery.db;
 
+
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgumentPositive;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkNotNull;
@@ -40,7 +41,6 @@ import androidx.annotation.NonNull;
 
 import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.core.udiscovery.v3.Node;
 import org.eclipse.uprotocol.core.udiscovery.v3.NodeOrBuilder;
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
@@ -58,6 +58,7 @@ import java.util.Set;
 
 public class DatabaseUtility {
     private static final String LOG_TAG = Formatter.tag("core", DatabaseUtility.class.getSimpleName());
+
     private DatabaseUtility() {
         throw new IllegalStateException("DatabaseUtility class");
     }
@@ -183,7 +184,7 @@ public class DatabaseUtility {
         checkNotNull(node, "[internalDeleteNode] node is null");
         checkStringNotEmpty(uri, "[internalDeleteNode] uri is empty");
         final List<Node.Builder> nodePath = FindPathToNode(node.toBuilder(), uri);
-        checkArgumentPositive(nodePath.size(), UCode.NOT_FOUND,  "[deleteNode] could not find " + uri);
+        checkArgumentPositive(nodePath.size(), UCode.NOT_FOUND, "[deleteNode] could not find " + uri);
         DeleteNodeFromPath(nodePath);
         return nodePath.get(0).build();
     }
@@ -201,7 +202,7 @@ public class DatabaseUtility {
         final Node.Builder rootBld = node.toBuilder();
         final Deque<Node.Builder> stack = new ArrayDeque<>();
         stack.push(rootBld);
-        while(!stack.isEmpty()) {
+        while (!stack.isEmpty()) {
             final Node.Builder bld = stack.pop();
             final boolean isValidType = !bld.getType().equals(Node.Type.UNSPECIFIED);
             checkArgument(isValidType, "[verifyNode] invalid node type " + bld.getType());
@@ -234,7 +235,7 @@ public class DatabaseUtility {
                 bld.clearNodes();
             }
             for (Node.Builder child : bld.getNodesBuilderList()) {
-                stack.push(new Pair<>(child, currentDepth+1));
+                stack.push(new Pair<>(child, currentDepth + 1));
             }
         }
         return rootBld.build();
@@ -242,12 +243,12 @@ public class DatabaseUtility {
 
     /**
      * @return None
+     * @return Node.Builder - reference to the newly inserted node as a builder
      * @fn commitNode
      * @brief Adds a new node to the hierarchy
      * If a node with the same URI exists, it will be overwritten
      * @param[] node - node to insert into the hierarchy
      * @param[] bld  - builder for the parent, which will adopt the node
-     * @return Node.Builder - reference to the newly inserted node as a builder
      */
     public static Node.Builder commitNode(Node.Builder bld, Node node) {
         checkNotNull(bld, "[commitNode] bld is null");
@@ -280,7 +281,7 @@ public class DatabaseUtility {
             final boolean result = verifyParentChild(parentUri, childUri);
             checkArgument(result, "[verifyLineage] invalid hierarchy: " +
                     parent.getType() + " { " + parent.getUri() + " } --> " +
-                    child.getType()  + " { " + parentUri + " }");
+                    child.getType() + " { " + parentUri + " }");
         }
     }
 
@@ -303,7 +304,7 @@ public class DatabaseUtility {
             }
             childList.remove(childList.size() - 1);
             return parentList.equals(childList);
-        } catch(UStatusException e) {
+        } catch (UStatusException e) {
             Log.e(LOG_TAG, join("verifyParentChild", e.getMessage()));
         }
         return false;

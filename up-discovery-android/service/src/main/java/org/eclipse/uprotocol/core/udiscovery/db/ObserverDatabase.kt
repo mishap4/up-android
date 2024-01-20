@@ -30,6 +30,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import org.eclipse.uprotocol.common.util.log.Key
+
 import org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.LOG_TAG
 import org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.join
 
@@ -40,6 +41,7 @@ import org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.join
     exportSchema = true
 )
 abstract class ObserverDatabase : RoomDatabase() {
+
     abstract fun observerDao(): ObserverDao
 
     companion object {
@@ -55,9 +57,9 @@ abstract class ObserverDatabase : RoomDatabase() {
                     ObserverDatabase::class.java,
                     "Observer.db"
                 )
-                .allowMainThreadQueries()
-                .fallbackToDestructiveMigration()
-                .build()
+                    .allowMainThreadQueries()
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }
@@ -66,6 +68,6 @@ abstract class ObserverDatabase : RoomDatabase() {
 }
 
 fun createDbExtension(context: Context): ObserverDatabase {
-    Log.i(LOG_TAG, join( Key.EVENT, "createDbExtension"))
+    Log.i(LOG_TAG, join(Key.EVENT, "createDbExtension"))
     return ObserverDatabase.createDatabase(context)
 }

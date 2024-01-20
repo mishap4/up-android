@@ -72,18 +72,18 @@ import java.util.Map;
 public class DiscoveryManagerTest extends TestBase implements PersistInterface {
 
     public static final String LOG_TAG = Formatter.tag("core", DiscoveryManagerTest.class.getSimpleName());
-    private DiscoveryManager mDiscoveryMgr;
-    public Notifier mNotifier = mock(Notifier.class);
+    private static final String UNKNOWN_PROPERTY_NAME = "unknown_property";
     private final IntegrityCheck mIntegrity = spy(IntegrityCheck.class);
+    public Notifier mNotifier = mock(Notifier.class);
+    private DiscoveryManager mDiscoveryMgr;
     private boolean mPersistFlag;
     private UEntity mEntityV1;
     private UEntity mEntityV2;
     private UEntity mUnknownEntity;
     private UResource mNewResource;
-    private static final String UNKNOWN_PROPERTY_NAME = "unknown_property";
 
     @Before
-    public void setUp(){
+    public void setUp() {
         ShadowLog.stream = System.out;
         doNothing().when(mNotifier).notifyObserversAddNodes(any(), any());
         doNothing().when(mNotifier).notifyObserversWithParentUri(any(), any());
@@ -92,8 +92,10 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         mDiscoveryMgr.setPersistInterface(this);
         mDiscoveryMgr.setChecksumInterface(mIntegrity);
         mPersistFlag = false;
+
         mEntityV1 = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
         mEntityV2 = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(2).build();
+
         mUnknownEntity = UEntity.newBuilder().setName("unknown_entity").build();
         mNewResource = UResource.newBuilder().setName("new_resource").build();
     }
@@ -119,6 +121,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_lookupuri() {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setEntity(entity).build();
 
@@ -177,6 +180,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_find_and_update_property() {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
 
@@ -310,7 +314,8 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         String before = mDiscoveryMgr.export();
 
         populateDatabase();
-        String validJson =  mDiscoveryMgr.export();
+        String validJson = mDiscoveryMgr.export();
+
         String corruptJson = validJson.replace(TEST_ENTITY_NAME, "");
 
         // if load fails the database shall be reinitialized
@@ -343,6 +348,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_ttl() throws InterruptedException {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node nodeToExpire = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -351,7 +357,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         assertEquals(UCode.OK, sts.getCode());
 
         Thread.sleep(2000);
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri,-1);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, -1);
         Node node = pair.first;
         sts = pair.second;
         assertTrue(mPersistFlag);
@@ -362,6 +368,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_save_load_pending_ttl() throws InterruptedException {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node nodeToExpire = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -381,7 +388,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         assertTrue(mDiscoveryMgr.load(saveData));
         Thread.sleep(2000);
 
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri,-1);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, -1);
         Node node = pair.first;
         sts = pair.second;
         assertTrue(mPersistFlag);
@@ -392,6 +399,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_save_load_expired_ttl() throws InterruptedException {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node nodeToExpire = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -411,7 +419,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         Thread.sleep(2000);
         assertTrue(mDiscoveryMgr.load(saveData));
 
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri,-1);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, -1);
         Node node = pair.first;
         sts = pair.second;
         assertFalse(mPersistFlag);
@@ -422,6 +430,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void negative_save_load_expired_ttl() throws InterruptedException {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node nodeToExpire = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -459,6 +468,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     public void negative_update_ttl_null_persist_interface() throws InterruptedException {
         mDiscoveryMgr.setPersistInterface(null);
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node nodeToExpire = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -482,7 +492,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         populateDatabase();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
 
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri, 0);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, 0);
         Node node = pair.first;
         UStatus sts = pair.second;
         assertNotNull(node);
@@ -495,14 +505,14 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         populateDatabase();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
 
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri, DEFAULT_DEPTH);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, DEFAULT_DEPTH);
         Node node = pair.first;
         UStatus sts = pair.second;
         assertNotNull(node);
         assertEquals(UCode.OK, sts.getCode());
 
         int depth = 0;
-        while(node.getNodesCount() != 0) {
+        while (node.getNodesCount() != 0) {
             node = node.getNodes(0);
             depth++;
         }
@@ -514,14 +524,14 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
         populateDatabase();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
 
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(uri, 1);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(uri, 1);
         Node node = pair.first;
         UStatus sts = pair.second;
         assertNotNull(node);
         assertEquals(UCode.OK, sts.getCode());
 
         int depth = 0;
-        while(node.getNodesCount() != 0) {
+        while (node.getNodesCount() != 0) {
             node = node.getNodes(0);
             depth++;
         }
@@ -530,7 +540,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
 
     @Test
     public void negative_findnode_empty_uri() {
-        Pair<Node, UStatus>pair = mDiscoveryMgr.findNode(UUri.getDefaultInstance(), DEFAULT_DEPTH);
+        Pair<Node, UStatus> pair = mDiscoveryMgr.findNode(UUri.getDefaultInstance(), DEFAULT_DEPTH);
         Node node = pair.first;
         UStatus sts = pair.second;
         assertNull(node);
@@ -550,6 +560,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_deletenode_same_path() {
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UResource resource1 = UResource.newBuilder().setName(TEST_RESOURCE).setInstance(TEST_INSTANCE_1).build();
         UResource resource2 = UResource.newBuilder().setName(TEST_RESOURCE).setInstance(TEST_INSTANCE_2).build();
@@ -571,6 +582,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     @Test
     public void positive_deletenode_different_path() {
         populateDatabase();
+
         UEntity entity1 = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UEntity entity2 = UEntity.newBuilder().setName(TEST_ALTERNATE_ENTITY).build();
         UUri parentUri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
@@ -624,6 +636,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     public void positive_findnode_properties_partial() {
         populateDatabase();
         List<String> list = List.of(TEST_PROPERTY1, TEST_PROPERTY2, UNKNOWN_PROPERTY_NAME);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
 
@@ -656,7 +669,9 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     public void negative_findnode_properties_not_found() {
         populateDatabase();
         List<String> list = List.of(UNKNOWN_PROPERTY_NAME);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
+
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
 
         Pair<Map<String, PropertyValue>, UStatus> pair = mDiscoveryMgr.findNodeProperties(uri, list);
@@ -728,6 +743,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
     public void negative_version_level_authority_mismatch() {
         assertTrue(mDiscoveryMgr.init(TEST_AUTHORITY));
         populateDatabase();
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri parentUri = UUri.newBuilder().setEntity(entity).build();
         UUri childUri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(mEntityV1).build();
@@ -772,7 +788,7 @@ public class DiscoveryManagerTest extends TestBase implements PersistInterface {
                 .setEntity(mEntityV1)
                 .setResource(mNewResource)
                 .build();
-        
+
         Node node = Node.newBuilder()
                 .setUri(toLongUri(resourceUri))
                 .setType(Node.Type.RESOURCE)

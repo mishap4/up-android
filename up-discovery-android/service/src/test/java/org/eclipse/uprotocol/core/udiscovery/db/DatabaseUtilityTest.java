@@ -24,16 +24,15 @@
 
 package org.eclipse.uprotocol.core.udiscovery.db;
 
+
 import static org.eclipse.uprotocol.core.udiscovery.TestBase.TEST_AUTHORITY;
-import static org.eclipse.uprotocol.core.udiscovery.TestBase.TEST_RESOURCE;
 import static org.eclipse.uprotocol.core.udiscovery.TestBase.TEST_INSTANCE_4;
+import static org.eclipse.uprotocol.core.udiscovery.TestBase.TEST_RESOURCE;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.parseAuthority;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 
-import org.eclipse.uprotocol.core.udiscovery.TestBase;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.core.udiscovery.v3.Node;
 import org.eclipse.uprotocol.v1.UAuthority;
 import org.eclipse.uprotocol.v1.UEntity;
@@ -49,9 +48,9 @@ import java.util.List;
 
 @RunWith(RobolectricTestRunner.class)
 public class DatabaseUtilityTest {
-    private String nameShort  = "a";
+    private String nameShort = "a";
     private String nameMedium = "ab";
-    private String nameLong   = "abc";
+    private String nameLong = "abc";
     private String mLevel0;
     private String mLevel1;
     private String mLevel2;

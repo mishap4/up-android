@@ -63,6 +63,7 @@ import java.util.Set;
 @RunWith(RobolectricTestRunner.class)
 public class ObserverManagerTest extends TestBase {
 
+    List<UUri> mUriList;
     private ObserverManager mObserverManager;
     @Mock
     private ObserverDatabase mDatabase;
@@ -70,7 +71,6 @@ public class ObserverManagerTest extends TestBase {
     private ObserverDao mObserverDao;
     private UUri mObserver1;
     private UUri mObserver2;
-    List<UUri> mUriList;
 
     private static void setLogLevel(int level) {
         ObserverManager.DEBUG = (level <= Log.DEBUG);
@@ -86,7 +86,6 @@ public class ObserverManagerTest extends TestBase {
                 ObserverDatabase.class).allowMainThreadQueries().build());
         when(ObserverDatabaseKt.createDbExtension(context)).thenReturn(mDatabase);
         mObserverManager = spy(new ObserverManager(mDatabase));
-
         UEntity versionEntity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
         UEntity observerEntity1 = UEntity.newBuilder().setName(TEST_OBSERVER1).build();
         UEntity observerEntity2 = UEntity.newBuilder().setName(TEST_OBSERVER2).build();

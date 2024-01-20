@@ -5,15 +5,12 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
 import android.util.Pair;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import com.google.protobuf.ProtocolStringList;
 
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
 import org.eclipse.uprotocol.v1.UAuthority;
-import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UEntity;
-import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.util.List;
@@ -61,4 +58,5 @@ public final class Utils {
         }
         return string.charAt(index) == ch;
     }
+
 }

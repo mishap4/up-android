@@ -6,7 +6,6 @@
 package org.eclipse.uprotocol.core.udiscovery.internal.log;
 
 import static android.text.TextUtils.isEmpty;
-
 import static org.eclipse.uprotocol.core.udiscovery.internal.log.CommonUtils.emptyIfNull;
 
 import android.annotation.SuppressLint;

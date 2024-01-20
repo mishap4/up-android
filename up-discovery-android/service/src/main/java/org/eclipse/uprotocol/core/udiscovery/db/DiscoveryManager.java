@@ -64,10 +64,8 @@ import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.Notifier;
-import org.eclipse.uprotocol.core.udiscovery.UDiscoveryService;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.ChecksumInterface;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.PersistInterface;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.core.udiscovery.v3.Node;
 import org.eclipse.uprotocol.core.udiscovery.v3.Notification;
 import org.eclipse.uprotocol.core.udiscovery.v3.PropertyValue;
@@ -98,13 +96,12 @@ public class DiscoveryManager {
     private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final ExpiryTable expiryTable = new ExpiryTable();
+    private final Notifier mNotifier;
+    private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
     private org.eclipse.uprotocol.v1.UAuthority ldsAuthority = UAuthority.getDefaultInstance();
     private Node ldsTree = Node.getDefaultInstance();
     private PersistInterface persistIntf;
     private ChecksumInterface checksumIntf;
-
-    private final Notifier mNotifier;
-    private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
 
     public DiscoveryManager(Notifier notifier) {
         mNotifier = notifier;
@@ -118,13 +115,15 @@ public class DiscoveryManager {
         mExecutor.shutdown();
     }
 
-    public void setChecksumInterface(ChecksumInterface intf) { checksumIntf = intf; }
+    public void setChecksumInterface(ChecksumInterface intf) {
+        checksumIntf = intf;
+    }
 
     /**
+     * @param authority - authority for the vehicle
      * @return true if successful, false otherwise
      * @fn init
      * @brief Creates a "shell" database on the first run
-     * @param authority - authority for the vehicle
      */
     public synchronized boolean init(@NonNull UAuthority authority) {
         try {
@@ -156,13 +155,13 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uri - an Ultifi URI string
      * @return List<String> - a list of Uri strings
      * @fn lookupUri
      * @brief This is used by any ultifi application or service to find service instances location,
      * and its current version. What is returned is a list of Uri strings like the following:
      * Example Application calls: lookupUri(“ultifi:///core.example”)
      * Returns: [“ultifi://ultifi.gm.com/core.example/2.0”, “ultifi:core.example/1.0”]
-     * @param uri - an Ultifi URI string
      */
     public synchronized Pair<UUriBatch, UStatus> lookupUri(@NonNull UUri uri) {
         UStatus sts;
@@ -193,11 +192,11 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param node - an Ultifi node in JSON format
+     * @param ttl  - Time To Live in seconds, ttl equal to -1 indicates live forever
      * @return google.rpc.Status
      * @fn updateNode
      * @brief Add or replace a new node in the hierarchy
-     * @param node - an Ultifi node in JSON format
-     * @param ttl - Time To Live in seconds, ttl equal to -1 indicates live forever
      */
     public synchronized UStatus updateNode(@NonNull Node node, long ttl) {
         UStatus sts;
@@ -225,12 +224,12 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param property - property to look for under given nodeUri
+     * @param value    - latest value to update for a property
+     * @param uri      - uri of node where property to be updated/placed
      * @return google.rpc.Status
      * @fn updateProperty
      * @brief Update property value if property exists otherwise create new one
-     * @param property - property to look for under given nodeUri
-     * @param value - latest value to update for a property
-     * @param uri - uri of node where property to be updated/placed
      */
     public synchronized UStatus updateProperty(@NonNull String property, @NonNull PropertyValue value, @NonNull UUri uri) {
         UStatus sts;
@@ -253,11 +252,11 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param parentUri - UUri object which represents ParentUri
+     * @param nodesList - list of nodes to be added
      * @return google.rpc.Status
      * @fn addNodes
      * @brief Adds node in the hierarchy
-     * @param parentUri - UUri object which represents ParentUri
-     * @param nodesList - list of nodes to be added
      */
     public synchronized UStatus addNodes(@NonNull UUri parentUri, @NonNull List<Node> nodesList) {
         UStatus sts;
@@ -289,7 +288,6 @@ public class DiscoveryManager {
             final List<UUri> uriList = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(nodesList));
             mExecutor.execute(() -> mNotifier.notifyObserversAddNodes(uriPath, uriList));
             sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[AddNodes] Success").build();
-
         } catch (UStatusException e) {
             sts = errorStatus(LOG_TAG, METHOD_ADD_NODES, toStatus(e));
         }
@@ -297,10 +295,10 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uriList - list or node uri's to delete
      * @return Status
      * @fn deleteNodes
      * @brief Delete a list of nodes from the uOTA database
-     * @param uriList - list or node uri's to delete
      */
     public synchronized UStatus deleteNodes(@NonNull List<UUri> uriList) {
         UStatus sts;
@@ -338,11 +336,11 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uri   - URI string to find
+     * @param depth - Int depth to return node tree as
      * @return rv - protobuf formatted data from the registry along with status information
      * @fn findNode
      * @brief Find a node in the hierarchy based on URI.</brief>
-     * @param uri - URI string to find
-     * @param depth - Int depth to return node tree as
      */
     public synchronized Pair<Node, UStatus> findNode(@NonNull UUri uri, int depth) {
         UStatus sts = UStatus.getDefaultInstance();
@@ -362,6 +360,8 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uri      - URI string
+     * @param nameList - names of property values
      * @return pMap - a map of PropertyValues from the uOTA db along with status information
      * @fn findNodeProperties
      * @brief Find properties belonging to a node in the hierarchy based on URI and name.
@@ -369,11 +369,9 @@ public class DiscoveryManager {
      * the map of properties names and its values found in the uOTA db along with the status
      * information. The status will be OK even if some of the requested properties values are
      * not found but the the message indicating as "Success for limited properties"
-     * @param uri - URI string
-     * @param nameList - names of property values
      */
     public synchronized Pair<Map<String, PropertyValue>, UStatus> findNodeProperties(@NonNull UUri uri,
-            @NonNull List<String> nameList) {
+                                                                                     @NonNull List<String> nameList) {
         UStatus sts;
         try {
             checkArgumentPositive(nameList.size(), "[findNodeProperties] nameList is empty");
@@ -415,7 +413,6 @@ public class DiscoveryManager {
 
             final JsonObject data = new JsonObject();
             final JsonObject hash = new JsonObject();
-
             writeNode(data, hash, JSON_HIERARCHY, ldsTree);
 
             final JsonObject root = new JsonObject();
@@ -433,10 +430,10 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param json - the persisted JSON string
      * @return true if successful, false otherwise
      * @fn load
      * @brief Initialize the Discovery Database with the persisted JSON store
-     * @param json - the persisted JSON string
      */
     public synchronized boolean load(@NonNull String json) {
         try {
@@ -468,13 +465,13 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param data - data section
+     * @param hash - hash section
+     * @param key  - key to write to each section
+     * @param node - Node object
      * @fn writeNode
      * @brief Convert the node to json and add it to the data section
      * Calculate the hash and add it to the hash section
-     * @param data - data section
-     * @param hash - hash section
-     * @param key - key to write to each section
-     * @param node - Node object
      */
     private void writeNode(@NonNull JsonObject data, JsonObject hash, @NonNull String key, @NonNull Node node)
             throws InvalidProtocolBufferException {
@@ -496,12 +493,12 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param data - data section
+     * @param hash - hash section
+     * @param key  - key to read from each section
      * @return None
      * @fn readNode
      * @brief Read the data, verify the hash, and convert json to protobuf
-     * @param data - data section
-     * @param hash - hash section
-     * @param key - key to read from each section
      */
     private Node readNode(@NonNull JsonObject data, @NonNull JsonObject hash, @NonNull String key)
             throws InvalidProtocolBufferException {
@@ -515,7 +512,7 @@ public class DiscoveryManager {
         final String signature = hash.get(key).getAsString();
         final boolean bOk = (checksumIntf == null) ? true : checksumIntf.verifyHash(payload, signature);
         if (!bOk) {
-            Log.w(LOG_TAG, join("readNode", Key.MESSAGE,  "hash check failed", KEY, quote(key)));
+            Log.w(LOG_TAG, join("readNode", Key.MESSAGE, "hash check failed", KEY, quote(key)));
             return null;
         }
         final Node.Builder bld = Node.newBuilder();
@@ -524,11 +521,11 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uri    - an Ultifi URI string
+     * @param millis - number of milliseconds from the current time upon which
+     *               the node is set to expire
      * @fn setExpirationTime
      * @brief Schedules a runnable to delete the node at a specific point in time
-     * @param uri - an Ultifi URI string
-     * @param millis - number of milliseconds from the current time upon which
-     * the node is set to expire
      */
     private void setExpirationTime(@NonNull String uri, long millis) {
         checkNotNull(uri, "[setExpirationTime] uri is null");
@@ -543,10 +540,10 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param uri - an Ultifi URI string
      * @return Runnable
      * @fn onExpired
      * @brief Creates a task to delete the node associated with the given URI
-     * @param uri - an Ultifi URI string
      */
     private synchronized Runnable onExpired(@NonNull String uri) {
         return () -> {
@@ -563,9 +560,9 @@ public class DiscoveryManager {
     }
 
     /**
+     * @param obj - JsonObject containing ttl data
      * @fn loadTtl
      * @brief Load DiscoveryManager TTL
-     * @param obj - JsonObject containing ttl data
      */
     private void loadTtl(@NonNull JsonObject obj) {
         final Instant now = Instant.now();

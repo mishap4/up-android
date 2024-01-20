@@ -24,7 +24,6 @@
 
 package org.eclipse.uprotocol.core.udiscovery;
 
-import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
@@ -54,14 +53,11 @@ import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.R;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.LookupUriResponse;
 import org.eclipse.uprotocol.rpc.URpcListener;
 import org.eclipse.uprotocol.uri.builder.UResourceBuilder;
-import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
-import org.eclipse.uprotocol.v1.UAttributes;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
@@ -80,9 +76,22 @@ import java.util.function.BiConsumer;
 @SuppressWarnings({"java:S1200", "java:S3008", "java:S1134"})
 public class UDiscoveryService extends Service implements NetworkStatusInterface {
     public static final String LOG_TAG = Formatter.tag("core", UDiscoveryService.class.getSimpleName());
-   public static final UEntity UDISCOVERY_SERVICE = UEntity.newBuilder().setName("core.udiscovery").setVersionMajor(2).build();
+    public static final UEntity UDISCOVERY_SERVICE = UEntity.newBuilder().setName("core.udiscovery").setVersionMajor(2).build();
+    public static final String METHOD_LOOKUP_URI = "LookupUri";
+    public static final String METHOD_FIND_NODES = "FindNodes";
+    public static final String METHOD_FIND_NODE_PROPERTIES = "FindNodeProperties";
+    public static final String METHOD_UPDATE_NODE = "UpdateNode";
+    public static final String METHOD_ADD_NODES = "AddNodes";
+    public static final String METHOD_DELETE_NODES = "DeleteNodes";
+    public static final String METHOD_UPDATE_PROPERTY = "UpdateProperty";
+    public static final String METHOD_REGISTER_FOR_NOTIFICATIONS = "RegisterForNotifications";
+    public static final String METHOD_UNREGISTER_FOR_NOTIFICATIONS = "UnregisterForNotifications";
     private static final String DATABASE_NOT_INITIALIZED = "Database not initialized";
     private static final String PROPERTY_SDV_ENABLED = "persist.sys.gm.sdv_enable";
+    private static final String NOTIFICATION_CHANNEL_ID = UDiscoveryService.class.getPackageName();
+    private static final CharSequence NOTIFICATION_CHANNEL_NAME = "UDiscoveryService";
+    private static final int NOTIFICATION_ID = 1;
+    //private USubscription.Stub mUsubStub;
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
     private final ScheduledExecutorService mExecutor = Executors.newScheduledThreadPool(1);
     private final Map<UUri, BiConsumer<UMessage, CompletableFuture<UPayload>>> mMethodHandlers = new HashMap<>();
@@ -96,21 +105,6 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     private CompletableFuture<Boolean> mNetworkAvailableFuture = new CompletableFuture<>();
     private Binder mBinder = new Binder() {
     };
-    //private USubscription.Stub mUsubStub;
-
-    private static final String NOTIFICATION_CHANNEL_ID = UDiscoveryService.class.getPackageName();
-    private static final CharSequence NOTIFICATION_CHANNEL_NAME = "UDiscoveryService";
-    private static final int NOTIFICATION_ID = 1;
-
-    public static final String METHOD_LOOKUP_URI = "LookupUri";
-    public static final String METHOD_FIND_NODES = "FindNodes";
-    public static final String METHOD_FIND_NODE_PROPERTIES = "FindNodeProperties";
-    public static final String METHOD_UPDATE_NODE = "UpdateNode";
-    public static final String METHOD_ADD_NODES = "AddNodes";
-    public static final String METHOD_DELETE_NODES = "DeleteNodes";
-    public static final String METHOD_UPDATE_PROPERTY = "UpdateProperty";
-    public static final String METHOD_REGISTER_FOR_NOTIFICATIONS = "RegisterForNotifications";
-    public static final String METHOD_UNREGISTER_FOR_NOTIFICATIONS = "UnregisterForNotifications";
 
     // This constructor is for service initialization
     // without this constructor service won't start.
@@ -120,7 +114,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
 
     @VisibleForTesting
     UDiscoveryService(Context context, RPCHandler rpcHandler, ULink uLink,
-            LoadUtility dbLoader, ConnectivityManager connectivityMgr) {
+                      LoadUtility dbLoader, ConnectivityManager connectivityMgr) {
         mRpcHandler = rpcHandler;
         mEclipseULink = uLink;
         mDatabaseLoader = dbLoader;
@@ -130,6 +124,12 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
 
     private static void logStatus(@NonNull String message, @NonNull UStatus status) {
         //Log.status(LOG_TAG, "logStatus", status, Key.MESSAGE, message);
+    }
+
+    public static @NonNull UStatus errorStatus(@NonNull String tag, @NonNull String method, @NonNull UStatus status,
+                                               Object... args) {
+        android.util.Log.e(tag, join(method, status, args));
+        return status;
     }
 
     private void registerNetworkCallback() {
@@ -148,7 +148,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     @Override
     public IBinder onBind(@NonNull Intent intent) {
         Log.d(LOG_TAG, join(Key.EVENT, "onBind"));
-         return mBinder;
+        return mBinder;
     }
 
     @SuppressWarnings("ConstantConditions")
@@ -268,12 +268,12 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private void executeFindNodesProperty(@NonNull UMessage requestEvent,
-            @NonNull CompletableFuture<UPayload> future) {
+                                          @NonNull CompletableFuture<UPayload> future) {
         try {
             checkArgument(mDatabaseInitialized.get(), UCode.FAILED_PRECONDITION, DATABASE_NOT_INITIALIZED);
             future.complete(mRpcHandler.processFindNodeProperties(requestEvent));
         } catch (Exception e) {
-            UStatus status = errorStatus(LOG_TAG,"executeFindNodesProperty", toStatus(e));
+            UStatus status = errorStatus(LOG_TAG, "executeFindNodesProperty", toStatus(e));
             FindNodePropertiesResponse response = FindNodePropertiesResponse.newBuilder().setStatus(status).build();
             future.complete(packToAny(response));
         }
@@ -303,7 +303,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private void executeUpdateProperty(@NonNull UMessage requestEvent,
-            @NonNull CompletableFuture<UPayload> future) {
+                                       @NonNull CompletableFuture<UPayload> future) {
         Log.d(LOG_TAG, join(Key.EVENT, "executeUpdateProperty"));
         try {
             checkArgument(mDatabaseInitialized.get(), UCode.FAILED_PRECONDITION, DATABASE_NOT_INITIALIZED);
@@ -315,7 +315,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private void executeRegisterNotification(@NonNull UMessage requestEvent,
-            @NonNull CompletableFuture<UPayload> future) {
+                                             @NonNull CompletableFuture<UPayload> future) {
         try {
             checkArgument(mDatabaseInitialized.get(), UCode.FAILED_PRECONDITION, DATABASE_NOT_INITIALIZED);
             //Log.i(LOG_TAG, Key.EVENT, "CE1 received for Register Notification", Key.REQUEST, stringify(requestEvent));
@@ -328,7 +328,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private void executeUnregisterNotification(@NonNull UMessage requestEvent,
-            @NonNull CompletableFuture<UPayload> future) {
+                                               @NonNull CompletableFuture<UPayload> future) {
         try {
             checkArgument(mDatabaseInitialized.get(), UCode.FAILED_PRECONDITION, DATABASE_NOT_INITIALIZED);
             //Log.i(LOG_TAG, Key.EVENT, "CE1 received for Unregister Notification", Key.REQUEST, stringify(requestEvent));
@@ -341,7 +341,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private CompletableFuture<UStatus> registerMethod(@NonNull String methodName,
-            @NonNull BiConsumer<UMessage, CompletableFuture<UPayload>> handler) {
+                                                      @NonNull BiConsumer<UMessage, CompletableFuture<UPayload>> handler) {
         final UUri methodUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).
                 setResource(UResourceBuilder.forRpcRequest(methodName)).build();
         return CompletableFuture.supplyAsync(() -> {
@@ -384,7 +384,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                         unregisterMethod(METHOD_REGISTER_FOR_NOTIFICATIONS),
                         unregisterMethod(METHOD_UNREGISTER_FOR_NOTIFICATIONS))
                 .exceptionally(e -> {
-                    errorStatus(LOG_TAG,"onDestroy", toStatus(e));
+                    errorStatus(LOG_TAG, "onDestroy", toStatus(e));
                     return null;
                 })
                 .thenCompose(it -> mEclipseULink.disconnect())
@@ -393,7 +393,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
         super.onDestroy();
     }
 
-    private void handleRequestEvent(@NonNull UMessage requestEvent, @NonNull CompletableFuture<UPayload>  future) {
+    private void handleRequestEvent(@NonNull UMessage requestEvent, @NonNull CompletableFuture<UPayload> future) {
         final UUri uUri = requestEvent.getAttributes().getSink();
         final boolean isSinkAvailable = requestEvent.getAttributes().hasSink();
         if (isSinkAvailable) {
@@ -428,11 +428,5 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
 //                .thenAccept(status -> {
 //                    Log.status(LOG_TAG, "createNotificationTopic", status);
 //                });
-    }
-
-        public static @NonNull UStatus errorStatus(@NonNull String tag, @NonNull String method, @NonNull UStatus status,
-            Object... args) {
-        android.util.Log.e(tag, join(method, status, args));
-        return status;
     }
 }

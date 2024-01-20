@@ -8,7 +8,6 @@ package org.eclipse.uprotocol.core.udiscovery.internal.log;
 import static org.eclipse.uprotocol.core.udiscovery.internal.log.CommonUtils.EMPTY_STRING_ARRAY;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptySet;
 

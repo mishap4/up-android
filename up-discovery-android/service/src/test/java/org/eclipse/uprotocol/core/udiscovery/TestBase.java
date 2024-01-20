@@ -48,10 +48,11 @@ public class TestBase {
     public static final String TEST_VIN = "1gk12d1t2n10339dc";
     public static final String TEST_DOMAIN = TEST_VIN + ".veh.ultifi.gm.com";
     public static final String TEST_DEVICE = "vcu";
+    public static final String TEST_NAME = String.join(".", TEST_DEVICE, TEST_DOMAIN);
+    public static final UAuthority TEST_AUTHORITY = UAuthority.newBuilder().setName(TEST_NAME).build();
     public static final String TEST_ALTERNATE_DEVICE = "cgm";
     public static final String TEST_ENTITY_NAME = "body.access";
     public static final String TEST_ALTERNATE_ENTITY = "cabin.climate";
-    public static final String TEST_NAME = String.join(".", TEST_DEVICE, TEST_DOMAIN);
     public static final String TEST_OBSERVER1 = "observer1";
     public static final String TEST_OBSERVER2 = "observer2";
     public static final String TEST_RESOURCE = "door";
@@ -63,10 +64,9 @@ public class TestBase {
     public static final String TEST_PROPERTY2 = "ent_prop2";
     public static final UEntity SERVICE = UEntity.newBuilder().setName(SERVICE_NAME).setVersionMajor(2).build();
     public static final UEntity TEST_ENTITY = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
-    public static final UAuthority TEST_AUTHORITY = UAuthority.newBuilder().setName(TEST_NAME).build();
     public static final UAuthority TEST_AUTHORITY2 = UAuthority.newBuilder().setName(TEST_ALTERNATE_ENTITY).build();
     public static final int DEFAULT_DEPTH = -1;
-//    public static final UltifiUri VEHICLE_SOURCE = UltifiUriFactory.parseFromUri("ultifi:/core.uota/2/rpc.response");
+    //    public static final UltifiUri VEHICLE_SOURCE = UltifiUriFactory.parseFromUri("ultifi:/core.uota/2/rpc.response");
 //    public static final UResource LOOKUPURI_METHOD = forRpc(METHOD_LOOKUP_URI);
 //    public static final UltifiUri LOCAL_LOOKUPURI = new UltifiUri(local(), SERVICE, LOOKUPURI_METHOD);
 //    public static final UResource FINDNODEURI_METHOD = forRpc(METHOD_FIND_NODES);

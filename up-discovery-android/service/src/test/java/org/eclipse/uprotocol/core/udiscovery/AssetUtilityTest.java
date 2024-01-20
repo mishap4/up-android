@@ -51,11 +51,14 @@ import java.io.IOException;
 public class AssetUtilityTest extends TestBase {
 
     public Context mContext;
+
     AssetUtility mAssetUtility;
+
     @Mock
     Context mockContext;
     private AssetUtility mSpyAssetUtility;
     private File mFile;
+
     @Before
     public void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
@@ -70,7 +73,8 @@ public class AssetUtilityTest extends TestBase {
     }
 
 
-    @Test public void test_readFileFromInternalStorage() {
+    @Test
+    public void test_readFileFromInternalStorage() {
         when(mockContext.getFilesDir()).thenReturn(new File("/tmp"));
         boolean actual = mAssetUtility.writeFileToInternalStorage(mockContext, LDS_DB_FILENAME,
                 REGISTRY_JSON);
@@ -79,7 +83,8 @@ public class AssetUtilityTest extends TestBase {
         assertEquals(REGISTRY_JSON.replaceAll("\\n", ""), actualReadData);
     }
 
-    @Test public void test_readFileFromInternalStorage_FileNotFound() {
+    @Test
+    public void test_readFileFromInternalStorage_FileNotFound() {
         String actual = mAssetUtility.readFileFromInternalStorage(mContext, LDS_DB_FILENAME);
         assertEquals("", actual);
     }

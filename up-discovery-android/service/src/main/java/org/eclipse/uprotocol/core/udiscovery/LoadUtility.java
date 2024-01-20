@@ -27,7 +27,6 @@ package org.eclipse.uprotocol.core.udiscovery;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkState;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkStringNotEmpty;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_AUTHORITY;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_DB_FILENAME;
 
@@ -37,24 +36,16 @@ import android.util.Log;
 import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
-import org.eclipse.uprotocol.core.udiscovery.common.Constants;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 
 public class LoadUtility {
-    private static final String LOG_TAG =  Formatter.tag("core", LoadUtility.class.getSimpleName());
+    private static final String LOG_TAG = Formatter.tag("core", LoadUtility.class.getSimpleName());
 
     protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
-    private final Context mContext;
     public final AssetUtility mAssetUtil;
     public final DiscoveryManager mDiscoveryMgr;
-
-    enum initLDSCode {
-        FAILURE,
-        RECOVERY,
-        SUCCESS
-    }
+    private final Context mContext;
 
     public LoadUtility(Context context, AssetUtility au, DiscoveryManager mgr) {
         mContext = context;
@@ -74,7 +65,7 @@ public class LoadUtility {
             }
         }
         if (code == initLDSCode.FAILURE) {
-            Log.e(LOG_TAG,join(Key.MESSAGE, "DB initialization failed"));
+            Log.e(LOG_TAG, join(Key.MESSAGE, "DB initialization failed"));
         } else {
             Log.d(LOG_TAG, join(Key.MESSAGE, "DB initialization successful"));
             if (VERBOSE) {
@@ -99,6 +90,12 @@ public class LoadUtility {
         final boolean bLoadResult = mDiscoveryMgr.load(json);
         checkState(bLoadResult, "[load] failed to load database");
 
-        Log.d(LOG_TAG, join(Key.EVENT, "load",  Key.STATUS, "successful"));
+        Log.d(LOG_TAG, join(Key.EVENT, "load", Key.STATUS, "successful"));
+    }
+
+    enum initLDSCode {
+        FAILURE,
+        RECOVERY,
+        SUCCESS
     }
 }

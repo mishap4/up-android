@@ -24,13 +24,13 @@
 
 package org.eclipse.uprotocol.core.udiscovery.db;
 
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.eclipse.uprotocol.core.udiscovery.TestBase;
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UUri;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,12 +44,12 @@ public class ExpiryTableTest extends TestBase {
     private String muUri;
 
     @Before
-    public void setUp(){
+    public void setUp() {
         tbl = new ExpiryTable();
         UUri uUri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(TEST_ENTITY).build();
         UUri uuri = UUri.newBuilder().setAuthority(TEST_AUTHORITY2).setEntity(TEST_ENTITY).build();
         mUUri = LongUriSerializer.instance().serialize(uUri);
-        muUri =  LongUriSerializer.instance().serialize(uuri);
+        muUri = LongUriSerializer.instance().serialize(uuri);
     }
 
     public ExpiryData buildExpiryData(String uri) {
@@ -73,7 +73,7 @@ public class ExpiryTableTest extends TestBase {
 
     @Test
     public void negative_remove_mismatch_src() {
-        ExpiryData ed = buildExpiryData( mUUri);
+        ExpiryData ed = buildExpiryData(mUUri);
         assertTrue(tbl.add(ed));
         ExpiryData result = tbl.remove(muUri);
         assertNull(result);
@@ -81,7 +81,7 @@ public class ExpiryTableTest extends TestBase {
 
     @Test
     public void negative_remove_mismatch_uri() {
-        ExpiryData ed = buildExpiryData( mUUri);
+        ExpiryData ed = buildExpiryData(mUUri);
         assertTrue(tbl.add(ed));
         ExpiryData result = tbl.remove(muUri);
         assertNull(result);
@@ -97,7 +97,7 @@ public class ExpiryTableTest extends TestBase {
 
     @Test
     public void positive_export() {
-        ExpiryData ed = buildExpiryData( mUUri);
+        ExpiryData ed = buildExpiryData(mUUri);
         assertTrue(tbl.add(ed));
         tbl.export();
     }

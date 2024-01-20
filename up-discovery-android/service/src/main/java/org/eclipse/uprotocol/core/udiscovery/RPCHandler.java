@@ -51,7 +51,6 @@ import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.common.Constants;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.PersistInterface;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.core.udiscovery.v3.AddNodesRequest;
 import org.eclipse.uprotocol.core.udiscovery.v3.DeleteNodesRequest;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesRequest;
@@ -78,7 +77,7 @@ import java.util.Map;
 @SuppressWarnings({"java:S1200", "java:S3008"})
 public class RPCHandler implements PersistInterface {
 
-    protected static final String LOG_TAG =  Formatter.tag("core", RPCHandler.class.getSimpleName());
+    protected static final String LOG_TAG = Formatter.tag("core", RPCHandler.class.getSimpleName());
     protected static final String NODEURI = "nodeUri";
     protected static final String DEPTH = "depth";
     protected static final String NODE = "node";
@@ -93,7 +92,7 @@ public class RPCHandler implements PersistInterface {
     private final ObserverManager mObserverManager;
 
     public RPCHandler(Context context, AssetUtility util, DiscoveryManager discoveryManager,
-            ObserverManager observerManager) {
+                      ObserverManager observerManager) {
         mContext = context;
         mDiscoveryManager = discoveryManager;
         mAssetUtil = util;
@@ -115,14 +114,14 @@ public class RPCHandler implements PersistInterface {
         LookupUriResponse response;
         try {
             final UPayload payload = uMsg.getPayload();
-            final UUri uri =unpack(payload, UUri.class).
+            final UUri uri = unpack(payload, UUri.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             if (DEBUG) {
                 Log.d(LOG_TAG, join(Key.REQUEST, "LookupUri", Key.URI, toLongUri(uri)));
             }
             final Pair<UUriBatch, UStatus> pair = mDiscoveryManager.lookupUri(uri);
             final UUriBatch batch = pair.first;
-            final UStatus status  = pair.second;
+            final UStatus status = pair.second;
             if (DEBUG) {
                 Log.d(LOG_TAG, join(Key.RESPONSE, "LookupUri", Key.STATUS, status, Key.URI, batch));
             }
@@ -146,7 +145,6 @@ public class RPCHandler implements PersistInterface {
             if (DEBUG) {
                 Log.d(LOG_TAG, join(Key.REQUEST, "FindNodes", NODEURI, rawUri, DEPTH, depth));
             }
-
             final Pair<Node, UStatus> pair = mDiscoveryManager.findNode(uri, depth);
             final Node node = pair.first;
             final UStatus status = pair.second;

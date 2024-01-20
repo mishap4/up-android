@@ -87,18 +87,18 @@ import java.util.List;
 @RunWith(RobolectricTestRunner.class)
 public class RPCHandlerTest extends TestBase {
 
+    private static final String TEST_INVALID_METHOD = "invalid method";
     public Context mContext;
     @Mock
     public Notifier mNotifier;
     @Mock
     public AssetUtility mAssetUtil;
-    @Mock
-    private ObserverManager mObserverManager;
     @Rule
     public MockitoRule rule = MockitoJUnit.rule();
     public RPCHandler mRPCHandler;
     public DiscoveryManager mDiscoveryManager;
-    private static final String TEST_INVALID_METHOD = "invalid method";
+    @Mock
+    private ObserverManager mObserverManager;
 
     private static void setLogLevel(int level) {
         RPCHandler.DEBUG = (level <= Log.DEBUG);
@@ -156,6 +156,7 @@ public class RPCHandlerTest extends TestBase {
     public void positive_processLookupUri_debug() throws InvalidProtocolBufferException {
         setLogLevel(Log.DEBUG);
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
+
         UUri uri = UUri.newBuilder().setEntity(entity).build();
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(uri)).build();
 
@@ -184,6 +185,7 @@ public class RPCHandlerTest extends TestBase {
     public void positive_processFindNodes() throws InvalidProtocolBufferException {
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
         FindNodesRequest request = FindNodesRequest.newBuilder().setUri(toLongUri(uri)).build();
+
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
 
         UPayload uPayload = mRPCHandler.processFindNodesFromLDS(uMsg);
@@ -214,7 +216,8 @@ public class RPCHandlerTest extends TestBase {
         // pack incorrect protobuf message type
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(UStatus.getDefaultInstance())).build();
 
-        UPayload uPayload = mRPCHandler.processFindNodesFromLDS(uMsg);;
+        UPayload uPayload = mRPCHandler.processFindNodesFromLDS(uMsg);
+        ;
         FindNodesResponse response = unpack(uPayload, FindNodesResponse.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
@@ -223,6 +226,7 @@ public class RPCHandlerTest extends TestBase {
 
     @Test
     public void positive_processFindNodeProperties() throws InvalidProtocolBufferException {
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         FindNodePropertiesRequest request = FindNodePropertiesRequest.newBuilder()
@@ -243,6 +247,7 @@ public class RPCHandlerTest extends TestBase {
     @Test
     public void positive_processFindNodeProperties_debug() throws InvalidProtocolBufferException {
         setLogLevel(Log.DEBUG);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         FindNodePropertiesRequest request = FindNodePropertiesRequest.newBuilder()
@@ -275,6 +280,7 @@ public class RPCHandlerTest extends TestBase {
 
     @Test
     public void positive_processUpdateNode() throws InvalidProtocolBufferException {
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node node = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -292,6 +298,7 @@ public class RPCHandlerTest extends TestBase {
     @Test
     public void positive_processUpdateNode_debug() throws InvalidProtocolBufferException {
         setLogLevel(Log.DEBUG);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         Node node = Node.newBuilder().setUri(toLongUri(uri)).setType(Node.Type.ENTITY).build();
@@ -344,6 +351,7 @@ public class RPCHandlerTest extends TestBase {
     @Test
     public void positive_processUpdateProperty_debug() throws InvalidProtocolBufferException {
         setLogLevel(Log.DEBUG);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         PropertyValue propertyValue = PropertyValue.newBuilder().setUInteger(0).build();
@@ -437,13 +445,15 @@ public class RPCHandlerTest extends TestBase {
 
     @Test
     public void positive_processDeleteNodes() throws InvalidProtocolBufferException {
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         DeleteNodesRequest request = DeleteNodesRequest.newBuilder().addUris(toLongUri(uri)).build();
+
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
 
         UPayload uPayload = mRPCHandler.processDeleteNodes(uMsg);
-        UStatus status =  unpack(uPayload, UStatus.class).
+        UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).deleteNodes(List.of(uri));
@@ -454,6 +464,7 @@ public class RPCHandlerTest extends TestBase {
     @Test
     public void positive_processDeleteNodes_debug() throws InvalidProtocolBufferException {
         setLogLevel(Log.DEBUG);
+
         UEntity entity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         DeleteNodesRequest request = DeleteNodesRequest.newBuilder().addUris(toLongUri(uri)).build();
@@ -464,6 +475,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).deleteNodes(List.of(uri));
+
         verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
@@ -485,6 +497,7 @@ public class RPCHandlerTest extends TestBase {
     public void positive_RegisterForNotifications() throws InvalidProtocolBufferException {
         UUri ObserverUri = UUri.getDefaultInstance();
         UUri nodeUri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).build();
+
         ObserverInfo info = ObserverInfo.newBuilder().setUri(toLongUri(ObserverUri)).build();
         NotificationsRequest request = NotificationsRequest.newBuilder()
                 .setObserver(info)

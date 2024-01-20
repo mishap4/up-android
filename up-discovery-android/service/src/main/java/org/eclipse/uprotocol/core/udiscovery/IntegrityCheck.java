@@ -37,7 +37,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
 public class IntegrityCheck implements ChecksumInterface {
-    protected static final String LOG_TAG =  Formatter.tag("core", IntegrityCheck.class.getSimpleName());
+    protected static final String LOG_TAG = Formatter.tag("core", IntegrityCheck.class.getSimpleName());
+
     /**
      * @return base64 encoded hash string
      * @fn generateHash

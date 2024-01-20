@@ -28,8 +28,6 @@ import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_HIERAR
 
 import com.google.gson.JsonObject;
 
-import org.eclipse.uprotocol.core.udiscovery.common.Constants;
-
 import java.util.ArrayList;
 
 public class ExpiryTable extends ArrayList<ExpiryData> {

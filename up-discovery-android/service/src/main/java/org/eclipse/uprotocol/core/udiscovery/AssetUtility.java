@@ -28,28 +28,25 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.util.Log;
 
 import org.eclipse.uprotocol.common.util.log.Formatter;
 
 import java.io.BufferedReader;
-import java.io.Closeable;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 
 public class AssetUtility {
 
-    public AssetUtility() {}
+    private static final String LOG_TAG = Formatter.tag("core", AssetUtility.class.getSimpleName());
 
-    private static final String LOG_TAG =  Formatter.tag("core", AssetUtility.class.getSimpleName());
+    public AssetUtility() {
+    }
 
-    public String readFileFromInternalStorage(Context context, String sFileName){
+    public String readFileFromInternalStorage(Context context, String sFileName) {
         try {
             final String filepath = context.getFilesDir() + "/" + sFileName;
             final StringBuilder buffer = new StringBuilder();
@@ -64,13 +61,13 @@ public class AssetUtility {
             Log.e(LOG_TAG, join("readFileFromInternalStorage", toStatus(e)));
             e.printStackTrace();
         } catch (IOException e) {
-            Log.e(LOG_TAG,join("readFileFromInternalStorage", toStatus(e)));
+            Log.e(LOG_TAG, join("readFileFromInternalStorage", toStatus(e)));
             e.printStackTrace();
         }
         return "";
     }
 
-    public boolean writeFileToInternalStorage(Context context, String sFileName, String sBody){
+    public boolean writeFileToInternalStorage(Context context, String sFileName, String sBody) {
         try {
             final File fd = new File(context.getFilesDir(), sFileName);
             final FileWriter writer = new FileWriter(fd);
@@ -79,44 +76,9 @@ public class AssetUtility {
             writer.close();
             return true;
         } catch (IOException e) {
-            Log.e(LOG_TAG,join("writeFileToInternalStorage", toStatus(e)));
+            Log.e(LOG_TAG, join("writeFileToInternalStorage", toStatus(e)));
             e.printStackTrace();
         }
         return false;
-    }
-
-    public String readJsonFromFile(Context context, String fileName) {
-        final StringBuilder buffer = new StringBuilder();
-        BufferedReader reader = null;
-        try {
-            AssetManager assetManager = context.getAssets();
-            InputStream inputStream = assetManager.open(fileName);
-            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
-            reader = new BufferedReader(inputStreamReader);
-            String row;
-            while ((row = reader.readLine()) != null) {
-                buffer.append(row);
-            }
-        } catch (FileNotFoundException fileNotFoundException) {
-            Log.e(LOG_TAG, join("readJsonFromFile", toStatus(fileNotFoundException),
-                    "file does not exist : " + fileName));
-        } catch (IOException ioException) {
-            Log.e(LOG_TAG, join("readJsonFromFile", toStatus(ioException),"file : " + fileName));
-            ioException.printStackTrace();
-        } finally {
-            close(reader);
-        }
-        return buffer.toString();
-    }
-
-    public void close(Closeable obj) {
-        if (obj != null) {
-            try {
-                obj.close();
-            } catch (IOException e) {
-                Log.e(LOG_TAG, join("close", toStatus(e)));
-                e.printStackTrace();
-            }
-        }
     }
 }

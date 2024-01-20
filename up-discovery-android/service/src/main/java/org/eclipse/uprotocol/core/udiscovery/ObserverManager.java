@@ -47,7 +47,6 @@ import org.eclipse.uprotocol.core.udiscovery.db.Observer;
 import org.eclipse.uprotocol.core.udiscovery.db.ObserverDao;
 import org.eclipse.uprotocol.core.udiscovery.db.ObserverDatabase;
 import org.eclipse.uprotocol.core.udiscovery.db.ObserverDatabaseKt;
-import org.eclipse.uprotocol.core.udiscovery.internal.Utils;
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UStatus;
@@ -60,27 +59,29 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ObserverManager {
-    protected static final String LOG_TAG =  Formatter.tag("core", ObserverManager.class.getSimpleName());
+    protected static final String LOG_TAG = Formatter.tag("core", ObserverManager.class.getSimpleName());
     protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
+    @VisibleForTesting
+    final ConcurrentHashMap<UUri, Set<UUri>> mObservers = new ConcurrentHashMap<>();
     private final Object mDBLock = new Object();
     private final ObserverDatabase mDatabase;
-    @VisibleForTesting final ConcurrentHashMap<UUri, Set<UUri>> mObservers = new ConcurrentHashMap<>();
 
     public ObserverManager(@NonNull Context context) {
         mDatabase = ObserverDatabaseKt.createDbExtension(context);
     }
 
-    @VisibleForTesting ObserverManager(ObserverDatabase database) {
+    @VisibleForTesting
+    ObserverManager(ObserverDatabase database) {
         mDatabase = database;
 
     }
 
     private void loadMapDataFromDb() {
         List<String> nodeUrisList = observerDao().getNodeUrisList();
-        for (String nodeUri:nodeUrisList) {
+        for (String nodeUri : nodeUrisList) {
             List<String> observerList = observerDao().getObserverList(nodeUri);
-            for(String observer : observerList) {
+            for (String observer : observerList) {
                 final LongUriSerializer serializer = LongUriSerializer.instance();
                 final UUri key = serializer.deserialize(nodeUri);
                 final UUri val = serializer.deserialize(observer);
@@ -170,7 +171,7 @@ public class ObserverManager {
                 }
                 return retCode >= 0;
             } catch (Exception e) {
-                errorStatus(LOG_TAG, "addObserverToDb", toStatus(e),Key.MESSAGE, "Failed to add to DB");
+                errorStatus(LOG_TAG, "addObserverToDb", toStatus(e), Key.MESSAGE, "Failed to add to DB");
                 return false;
             }
         }
@@ -294,7 +295,7 @@ public class ObserverManager {
         }
         final ConcurrentHashMap<UUri, Set<UUri>> observersMap = mObservers;
         if (VERBOSE) {
-            Log.v(LOG_TAG, join(Key.EVENT , "getObserverMap"));
+            Log.v(LOG_TAG, join(Key.EVENT, "getObserverMap"));
             for (Map.Entry<UUri, Set<UUri>> entry : observersMap.entrySet()) {
                 for (UUri observer : entry.getValue()) {
                     String key = toLongUri(entry.getKey());

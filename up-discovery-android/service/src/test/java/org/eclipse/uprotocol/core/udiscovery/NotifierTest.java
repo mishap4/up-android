@@ -49,7 +49,6 @@ import java.util.Set;
 
 @RunWith(RobolectricTestRunner.class)
 public class NotifierTest extends TestBase {
-
     private ULink mElicpseUlink;
     private ObserverManager mObserverManager;
     private Notifier mNotifier;
@@ -92,6 +91,7 @@ public class NotifierTest extends TestBase {
 
     private List<UUri> getUriPath() {
         UAuthority domainAuthority = UAuthority.newBuilder().setName(TEST_DOMAIN).build();
+
         UEntity serviceEntity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).build();
         UEntity versionEntity = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
 

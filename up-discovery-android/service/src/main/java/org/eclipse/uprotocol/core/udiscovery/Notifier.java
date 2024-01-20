@@ -45,15 +45,14 @@ import java.util.Set;
 
 
 public class Notifier {
-    private static final String LOG_TAG =  Formatter.tag("core", Notifier.class.getSimpleName());
+    public static final String PARENT_URI = "parentUri";
+    public static final String OBSERVER_URI = "observerUri";
+    public static final String NOTIFICATION = "notification";
+    private static final String LOG_TAG = Formatter.tag("core", Notifier.class.getSimpleName());
     protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
     private final ObserverManager mObserverManager;
     private final ULink mEclipseUlink;
-
-    public static final String PARENT_URI = "parentUri";
-    public static final String OBSERVER_URI = "observerUri";
-    public static final String NOTIFICATION = "notification";
 
     public Notifier(ObserverManager observerManager, ULink ultifiLink) {
         mObserverManager = observerManager;
@@ -123,7 +122,7 @@ public class Notifier {
     }
 
     private void buildNotifications(UUri nodeUri, UUri parentUri, Operation operation,
-            UUri observerUri) {
+                                    UUri observerUri) {
         final String child = toLongUri(nodeUri);
         final String parent = toLongUri(parentUri);
         final Notification notification = Notification.newBuilder()
