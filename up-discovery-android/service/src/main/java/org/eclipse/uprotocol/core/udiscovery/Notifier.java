@@ -52,11 +52,11 @@ public class Notifier {
     protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
     private final ObserverManager mObserverManager;
-    private final ULink mEclipseUlink;
+    private final ULink mEUlink;
 
     public Notifier(ObserverManager observerManager, ULink ultifiLink) {
         mObserverManager = observerManager;
-        mEclipseUlink = ultifiLink;
+        mEUlink = ultifiLink;
     }
 
     /**

@@ -24,35 +24,96 @@
 
 package org.eclipse.uprotocol.core.udiscovery;
 
+import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
+import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_ADD_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_DELETE_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_FIND_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_FIND_NODE_PROPERTIES;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_LOOKUP_URI;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_NODE;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_PROPERTY;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.TOPIC_NODE_NOTIFICATION;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.UDISCOVERY_SERVICE;
+import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
+import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
+import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.join;
+import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
+import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.accounts.AccountManager;
 import android.content.Context;
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.util.Log;
 
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 
 import org.eclipse.uprotocol.ULink;
+import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
+import org.eclipse.uprotocol.common.util.log.Key;
+import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
+import org.eclipse.uprotocol.core.udiscovery.v3.AddNodesRequest;
+import org.eclipse.uprotocol.core.udiscovery.v3.DeleteNodesRequest;
+import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesRequest;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesResponse;
+import org.eclipse.uprotocol.core.udiscovery.v3.FindNodesRequest;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodesResponse;
+import org.eclipse.uprotocol.core.udiscovery.v3.LookupUriResponse;
+import org.eclipse.uprotocol.core.udiscovery.v3.Node;
+import org.eclipse.uprotocol.core.udiscovery.v3.NotificationsRequest;
+import org.eclipse.uprotocol.core.udiscovery.v3.PropertyValue;
+import org.eclipse.uprotocol.core.udiscovery.v3.UpdateNodeRequest;
+import org.eclipse.uprotocol.core.udiscovery.v3.UpdatePropertyRequest;
+import org.eclipse.uprotocol.rpc.CallOptions;
 import org.eclipse.uprotocol.rpc.URpcListener;
+import org.eclipse.uprotocol.transport.builder.UAttributesBuilder;
+import org.eclipse.uprotocol.uri.builder.UResourceBuilder;
+import org.eclipse.uprotocol.v1.UCode;
+import org.eclipse.uprotocol.v1.UEntity;
+import org.eclipse.uprotocol.v1.UMessage;
+import org.eclipse.uprotocol.v1.UPayload;
+import org.eclipse.uprotocol.v1.UPriority;
+import org.eclipse.uprotocol.v1.UResource;
+import org.eclipse.uprotocol.v1.UStatus;
+import org.eclipse.uprotocol.v1.UUri;
+import org.eclipse.uprotocol.v1.UUriBatch;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
+import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.shadows.ShadowLog;
 
-import io.cloudevents.CloudEvent;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @SuppressWarnings({"java:S1200", "java:S3008", "java:S1134", "java:S2925", "java:S3415",
         "java:S5845"})
@@ -62,27 +123,29 @@ public class UDiscoveryServicesTest extends TestBase {
     private static final ByteString mCorruptPayload = ByteString.copyFromUtf8("corrupt payload");
     private static final String TOKEN = "token";
     private static final String LOG_TAG = Formatter.tag("core", UDiscoveryServicesTest.class.getSimpleName());
-    private static CloudEvent mLookupUriCloudEvent;
-    private static CloudEvent mFindNodeCloudEvent;
-    private static CloudEvent mFindNodePropertiesCloudEvent;
-    private static CloudEvent mUpdateNodeCloudEvent;
-    private static CloudEvent mAddNodesCloudEvent;
-    private static CloudEvent mDeleteNodesCloudEvent;
-    private static CloudEvent mRegisterCloudEvent;
-    private static CloudEvent mUnRegisterCloudEvent;
-    private static CloudEvent mUpdatePropertyCloudEvent;
-    //private static UriResponse mLookupUriResponse;
+    private static UStatus mFailedStatus;
+    private static UStatus mNotFoundStatus;
+    private static UMessage mLookupUriUMsg;
+    private static UMessage mFindNodeUMsg;
+    private static UMessage mFindNodePropertiesUMsg;
+    private static UMessage mUpdateNodeUMsg;
+    private static UMessage mAddNodesUMsg;
+    private static UMessage mDeleteNodesUMsg;
+    private static UMessage mRegisterUMsg;
+    private static UMessage mUnRegisterUMsg;
+    private static UMessage mUpdatePropertyUMsg;
+    private static LookupUriResponse mLookupUriResponse;
     private static FindNodesResponse mFindNodesResponse;
     private static FindNodePropertiesResponse mFindNodePropertiesResponse;
     private final AccountManager mAccountManager = mock(AccountManager.class);
     @Rule
     public MockitoRule rule = MockitoJUnit.rule();
     private UDiscoveryService mService;
-   private URpcListener mHandler;
+    private URpcListener mHandler;
 
-   //private UltifiLink.EventListener mNotificationHandler;
+    //private UltifiLink.EventListener mNotificationHandler;
     @Mock
-    private ULink mULink;
+    private ULink mEULink;
     @Mock
     private RPCHandler mRpcHandler;
     @Mock
@@ -99,114 +162,88 @@ public class UDiscoveryServicesTest extends TestBase {
         UDiscoveryService.VERBOSE = (level <= Log.VERBOSE);
     }
 
-//    @BeforeClass
-//    public static void init() {
-//        mLookupUriCloudEvent = buildCloudEvent(LOCAL_LOOKUPURI.uProtocolUri(),
-//                Any.pack(UriRequest.getDefaultInstance()));
-//
-//        mFindNodeCloudEvent = buildCloudEvent(LOCAL_FINDNODEURI.uProtocolUri(),
-//                Any.pack(FindNodesRequest.getDefaultInstance()));
-//
-//        mUpdateNodeCloudEvent = buildCloudEvent(LOCAL_UPDATENODE.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mFindNodePropertiesCloudEvent = buildCloudEvent(LOCAL_FINDNODEPROPERTY.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mAddNodesCloudEvent = buildCloudEvent(LOCAL_ADDNODES.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mDeleteNodesCloudEvent = buildCloudEvent(LOCAL_DELETENODES.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mRegisterCloudEvent = buildCloudEvent(LOCAL_REGISTER_NOTIFICATION.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mUnRegisterCloudEvent = buildCloudEvent(LOCAL_UNREGISTER_NOTIFICATION.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        mUpdatePropertyCloudEvent = buildCloudEvent(LOCAL_UPDATEPROPERTY.uProtocolUri(),
-//                Any.getDefaultInstance());
-//
-//        UriResponse.Builder lookupUriRespBld = UriResponse.newBuilder()
-//                .addUris("ultifi:/body.cabin_climate/1")
-//                .addUris("ultifi:/body.cabin_climate/2")
-//                .addUris("ultifi:/body.cabin_climate/3");
-//        mLookupUriResponse = lookupUriRespBld.build();
-//
-//        Node node = jsonToNode(OTA_JSON);
-//        mFindNodesResponse = FindNodesResponse.newBuilder().addNodes(node).setStatus(
-//                Status.newBuilder()
-//                        .setCode(Code.OK_VALUE).setMessage("OK").build()).build();
-//
-//        PropertyValue propString = PropertyValue.newBuilder().setUString("hello world").build();
-//        PropertyValue propInteger = PropertyValue.newBuilder().setUInteger(2023).build();
-//        PropertyValue propBoolean = PropertyValue.newBuilder().setUBoolean(true).build();
-//
-//        FindNodePropertiesResponse.Builder fnpRespBld = FindNodePropertiesResponse.newBuilder();
-//        fnpRespBld.putProperties("message", propString);
-//        fnpRespBld.putProperties("year", propInteger);
-//        fnpRespBld.putProperties("enabled", propBoolean);
-//        mFindNodePropertiesResponse = fnpRespBld.build();
-//
-//        mFailedStatus = Status.newBuilder()
-//                .setCode(Code.FAILED_PRECONDITION_VALUE)
-//                .setMessage("test exception")
-//                .build();
-//
-//        mNotFoundStatus = Status.newBuilder().setCode(Code.NOT_FOUND_VALUE).build();
-//    }
+    @BeforeClass
+    public static void init() {
+        mLookupUriUMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UUri.getDefaultInstance()));
 
-//    private static CloudEvent buildCloudEvent(String methodUri, Any payload) {
-//        return CloudEventFactory.request(
-//                buildUriForRpc(local(), new UEntity("core.udiscovery", "2"))
-//                , methodUri, payload,
-//                new UCloudEventAttributes.UCloudEventAttributesBuilder()
-//                        .withTtl(CallOptions.TIMEOUT_DEFAULT)
-//                        .withPriority(UCloudEventAttributes.Priority.REALTIME_INTERACTIVE)
-//                        .build());
-//    }
-//
-//    private static AccountManagerFuture<Bundle> buildAccountManagerFuture() {
-//        Bundle result = new Bundle();
-//        result.putString(AccountManager.KEY_AUTHTOKEN, UDiscoveryServicesTest.TOKEN);
-//        AccountManagerFuture<Bundle> future = mock(AccountManagerFuture.class);
-//        try {
-//            doReturn(result).when(future).getResult();
-//            doReturn(result).when(future).getResult(anyLong(), any());
-//        } catch (Exception ignored) {
-//        }
-//        return future;
-//    }
-//
-//    private static AccountManagerFuture<Bundle> buildAccountManagerFuture(Throwable exception) {
-//        AccountManagerFuture<Bundle> future = mock(AccountManagerFuture.class);
-//        try {
-//            doThrow(exception).when(future).getResult();
-//            doThrow(exception).when(future).getResult(anyLong(), any());
-//        } catch (Exception ignored) {
-//        }
-//        return future;
-//    }
+        mFindNodeUMsg = buildUMessage(METHOD_FIND_NODES, packToAny(FindNodesRequest.getDefaultInstance()));
+
+        mUpdateNodeUMsg = buildUMessage(METHOD_UPDATE_NODE, packToAny(UpdateNodeRequest.getDefaultInstance()));
+
+        mFindNodePropertiesUMsg = buildUMessage(METHOD_FIND_NODE_PROPERTIES,
+                packToAny(FindNodePropertiesRequest.getDefaultInstance()));
+
+        mAddNodesUMsg = buildUMessage(METHOD_ADD_NODES, packToAny(AddNodesRequest.getDefaultInstance()));
+
+        mDeleteNodesUMsg = buildUMessage(METHOD_DELETE_NODES, packToAny(DeleteNodesRequest.getDefaultInstance()));
+
+        mRegisterUMsg = buildUMessage(METHOD_REGISTER_FOR_NOTIFICATIONS,
+                packToAny(NotificationsRequest.getDefaultInstance()));
+
+        mUnRegisterUMsg = buildUMessage(METHOD_UNREGISTER_FOR_NOTIFICATIONS,
+                packToAny(NotificationsRequest.getDefaultInstance()));
+
+        mUpdatePropertyUMsg = buildUMessage(METHOD_UPDATE_PROPERTY,
+                packToAny(UpdatePropertyRequest.getDefaultInstance()));
+
+        UEntity entity1 = UEntity.newBuilder().setName("body.cabin_climate/1").build();
+        UEntity entity2 = UEntity.newBuilder().setName("body.cabin_climate/2").build();
+        UEntity entity3 = UEntity.newBuilder().setName("body.cabin_climate/3").build();
+        UUri uri1 = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity1).build();
+        UUri uri2 = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity2).build();
+        UUri uri3 = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity3).build();
+
+        LookupUriResponse.Builder lookupUriRespBld = LookupUriResponse.newBuilder()
+                .setUris(UUriBatch.newBuilder().addUris(uri1).addUris(uri2).addUris(uri3));
+        mLookupUriResponse = lookupUriRespBld.build();
+
+        Node node = jsonToNode(REGISTRY_JSON);
+        mFindNodesResponse = FindNodesResponse.newBuilder().addNodes(node).setStatus(
+                UStatus.newBuilder()
+                        .setCode(UCode.OK).setMessage("OK").build()).build();
+
+        PropertyValue propString = PropertyValue.newBuilder().setUString("hello world").build();
+        PropertyValue propInteger = PropertyValue.newBuilder().setUInteger(2023).build();
+        PropertyValue propBoolean = PropertyValue.newBuilder().setUBoolean(true).build();
+
+        FindNodePropertiesResponse.Builder fnpRespBld = FindNodePropertiesResponse.newBuilder();
+        fnpRespBld.putProperties("message", propString);
+        fnpRespBld.putProperties("year", propInteger);
+        fnpRespBld.putProperties("enabled", propBoolean);
+        mFindNodePropertiesResponse = fnpRespBld.build();
+
+        mFailedStatus = UStatus.newBuilder()
+                .setCode(UCode.FAILED_PRECONDITION)
+                .setMessage("test exception")
+                .build();
+
+        mNotFoundStatus = UStatus.newBuilder().setCode(UCode.NOT_FOUND).build();
+    }
+
+    private static UMessage buildUMessage(String methodUri, UPayload uPayload) {
+        UResource uResource = UResourceBuilder.forRpcRequest(methodUri);
+        UUri uUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).setResource(uResource).build();
+        UAttributesBuilder uAttributesBuilder = UAttributesBuilder.request(UPriority.UPRIORITY_CS4, uUri, TTL);
+        return UMessage.newBuilder().setAttributes(uAttributesBuilder.build()).setPayload(uPayload).build();
+    }
 
     @Before
     public void setUp() throws InterruptedException {
         ShadowLog.stream = System.out;
 
-//        CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
-//        when(mULink.connect()).thenReturn(connectFut);
+        CompletableFuture<UStatus> response = CompletableFuture.completedFuture(STATUS_OK);
+        when(mEULink.connect()).thenReturn(response);
         when(mDatabaseLoader.initializeLDS()).thenReturn(LoadUtility.initLDSCode.SUCCESS);
-//        when(mULink.isConnected()).thenReturn(true);
+        when(mEULink.isConnected()).thenReturn(true);
 
-//        Status okStatus = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        when(mULink.registerEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class))).thenReturn(okStatus);
+        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
+        when(mEULink.registerRpcListener(any(), any())).thenReturn(okStatus);
 
-//        CompletableFuture<UStatus> response = CompletableFuture.completedFuture(STATUS_OK);
-//        doReturn(response).when(mUSubStub).createTopic(any(CreateTopicRequest.class));
+        CompletableFuture<UStatus> responseCreateTopic = CompletableFuture.completedFuture(STATUS_OK);
+        doReturn(responseCreateTopic).when(mEULink).invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT);
 
         mContext = InstrumentationRegistry.getInstrumentation().getContext();
-        mService = new UDiscoveryService(mContext, mRpcHandler, mULink, mDatabaseLoader,
+        mService = new UDiscoveryService(mContext, mRpcHandler, mEULink, mDatabaseLoader,
                 mConnectivityMgr);
         mService.setNetworkStatus(true);
 
@@ -215,10 +252,10 @@ public class UDiscoveryServicesTest extends TestBase {
         Thread.sleep(100);
 
         // capture the request event listener to inject rpc request cloud events
-//        ArgumentCaptor<UltifiLink.RequestEventListener> captor = ArgumentCaptor.forClass(
-//                UltifiLink.RequestEventListener.class);
-//        verify(mULink, atLeastOnce()).registerEventListener(any(UltifiUri.class), captor.capture());
-//        mHandler = captor.getValue();
+        ArgumentCaptor<URpcListener> captor = ArgumentCaptor.forClass(
+                URpcListener.class);
+        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
+        mHandler = captor.getValue();
     }
 
 
@@ -238,505 +275,454 @@ public class UDiscoveryServicesTest extends TestBase {
     }
 
 
-//    @Test
-//    public void negative_ulink_connect_exception() {
-//        CompletableFuture<Status> connectFut = CompletableFuture.completedFuture(mFailedStatus);
-//        UltifiLink mockLink = mock(UltifiLink.class);
-//        when(mockLink.connect()).thenReturn(connectFut);
-//        boolean bException = false;
-//        try {
-//            new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader,
-//                    mAnalyticsReporter, mConnectivityMgr, mAuthenticator, mUSubStub, null);
-//        } catch (CompletionException e) {
-//            bException = true;
-//            Log.e(LOG_TAG, Key.MESSAGE, "negative_ulink_connect_exception", Key.FAILURE, e);
-//        }
-//        assertTrue(bException);
-//    }
-//
-//    @Test
-//    public void negative_ulink_isConnected_false() {
-//        UltifiLink mockLink = mock(UltifiLink.class);
-//        USubscription.Stub mockStub = mock(USubscription.Stub.class);
-//        CompletableFuture<Status> connectFut = CompletableFuture.completedFuture(STATUS_OK);
-//
-//        when(mockLink.connect()).thenReturn(connectFut);
-//        when(mockLink.isConnected()).thenReturn(false);
-//
-//        new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mAnalyticsReporter,
-//                mConnectivityMgr, mAuthenticator, mockStub, null);
-//
-//        verify(mockLink, never()).registerEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class));
-//        verify(mockStub, never()).createTopic(any(CreateTopicRequest.class));
-//    }
-//
-//    @Test
-//    public void negative_handler_uninitialized_exception() throws InterruptedException {
-//        LoadUtility mockLoader = mock(LoadUtility.class);
-//        when(mockLoader.initializeLDS()).thenReturn(LoadUtility.initLDSCode.FAILURE);
-//        new UDiscoveryService(mContext, mRpcHandler, mULink, mockLoader,
-//                mAnalyticsReporter, mConnectivityMgr, mAuthenticator, mUSubStub, null);
-//
-//        // sleep to ensure registerAllMethods completes in the async thread before the verify
-//        // registerEventListener call below
-//        Thread.sleep(100);
-//
-//        // capture the request event listener to inject rpc request cloud events
-//        ArgumentCaptor<UltifiLink.RequestEventListener> captor = ArgumentCaptor.forClass(
-//                UltifiLink.RequestEventListener.class);
-//        verify(mULink, atLeastOnce()).registerEventListener(any(UltifiUri.class), captor.capture());
-//        UltifiLink.RequestEventListener handler = captor.getValue();
-//
-//        List<CloudEvent> CloudEventList = List.of(mUpdateNodeCloudEvent,
-//                mFindNodePropertiesCloudEvent,
-//                mAddNodesCloudEvent,
-//                mDeleteNodesCloudEvent,
-//                mUpdatePropertyCloudEvent,
-//                mRegisterCloudEvent,
-//                mUnRegisterCloudEvent);
-//        Any response = Any.pack(mFailedStatus);
-//        for (int i = 0; i < CloudEventList.size(); i++) {
-//            CompletableFuture<Any> fut = new CompletableFuture<>();
-//            handler.onEvent(CloudEventList.get(i), fut);
-//            fut.whenComplete((result, ex) -> {
-//                assertEquals(response, result);
-//                assertNotNull(ex);
-//            });
-//        }
-//    }
-//
-//    @Test
-//    public void negative_uLink_registerMethod_exception() throws InterruptedException {
-//        CompletableFuture<Status> connectFut = CompletableFuture.completedFuture(STATUS_OK);
-//        when(mULink.connect()).thenReturn(connectFut);
-//
-//        when(mULink.registerEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class))).thenReturn(mFailedStatus);
-//
-//        new UDiscoveryService(mContext, mRpcHandler, mULink, mDatabaseLoader, mAnalyticsReporter,
-//                mConnectivityMgr, mAuthenticator, mUSubStub, null);
-//        // wait for register async tasks to complete
-//        Thread.sleep(100);
-//        verify(mULink, atLeastOnce()).registerEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class));
-//    }
-//
-//    @Test
-//    public void negative_uLink_unRegisterMethod_exception() throws InterruptedException {
-//        when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
-//        when(mULink.unregisterEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class))).thenReturn(mFailedStatus);
-//
-//        mService.onDestroy();
-//        // wait for unregister async tasks to complete
-//        Thread.sleep(100);
-//        verify(mULink, atLeastOnce()).unregisterEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class));
-//    }
-//
-//    @Test
-//    public void negative_handleRequestEvent() {
-//        UltifiUri uri = new UltifiUri(local(), SERVICE, forRpc("fakeMethod"));
-//        CloudEvent ce = buildCloudEvent(uri.uProtocolUri(), Any.getDefaultInstance());
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(ce, fut);
-//        fut.whenComplete((result, ex) -> {
-//            assertNotNull(ex);
-//            assertEquals(Code.INVALID_ARGUMENT_VALUE, throwableToStatus(ex).getCode());
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeLookupUri_LDS() {
-//        Status ok = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(mLookupUriResponse);
-//        Pair<Status, Any> lookupUriResult = new Pair<>(ok, response);
-//        when(mRpcHandler.processLookupUriFromLDS(any(UriRequest.class),
-//                any(UltifiUri.class))).thenReturn(lookupUriResult);
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mLookupUriCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeLookupUri_LDS_not_found() {
-//        Any responseMessage = Any.pack(mLookupUriResponse);
-//        Pair<Status, Any> lookupUriResult = new Pair<>(mNotFoundStatus, responseMessage);
-//        when(mRpcHandler.processLookupUriFromLDS(any(UriRequest.class),
-//                any(UltifiUri.class))).thenReturn(lookupUriResult);
-//
-//        CloudEvent ce = buildRemoteCloudEventRequest(LOCAL_LOOKUPURI, Any.getDefaultInstance());
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(ce, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(responseMessage, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeLookupUri_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mLookupUriCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                UriResponse resp = result.unpack(UriResponse.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getResult().getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeFindNodes_LDS() {
-//        Status ok = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(mFindNodesResponse);
-//        Pair<Status, Any> findNodeResult = new Pair<>(ok, response);
-//        when(mRpcHandler.processFindNodesFromLDS(any(FindNodesRequest.class),
-//                any(UltifiUri.class))).thenReturn(findNodeResult);
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mFindNodeCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeFindNodes_LDS_not_found() {
-//        Any response = Any.pack(mFindNodesResponse);
-//        Pair<Status, Any> findNodeResult = new Pair<>(mNotFoundStatus, response);
-//        when(mRpcHandler.processFindNodesFromLDS(any(FindNodesRequest.class),
-//                any(UltifiUri.class))).thenReturn(findNodeResult);
-//
-//        CloudEvent ce = buildRemoteCloudEventRequest(LOCAL_FINDNODEURI, Any.getDefaultInstance());
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(ce, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void executeFindNodes_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mFindNodeCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                FindNodesResponse resp = result.unpack(FindNodesResponse.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getStatus().getCode());
-//                assertNull(ex);
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeUpdateNode() {
-//        Status okSts = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(okSts);
-//        when(mRpcHandler.processLDSUpdateNode(any(Any.class), any(UltifiUri.class))).thenReturn(
-//                Any.pack(response));
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUpdateNodeCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeUpdateNode_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUpdateNodeCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeFindNodesProperty() {
-//        Any response = Any.pack(mFindNodePropertiesResponse);
-//        when(mRpcHandler.processFindNodeProperty(any(Any.class))).thenReturn(response);
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mFindNodePropertiesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeFindNodesProperty_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mFindNodePropertiesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeAddNodes() {
-//        Status okSts = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(okSts);
-//        when(mRpcHandler.processAddNodesLDS(any(Any.class), any(UltifiUri.class))).thenReturn(
-//                Any.pack(response));
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mAddNodesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeAddNodes_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mAddNodesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeDeleteNodes() {
-//        Status okSts = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(okSts);
-//        when(mRpcHandler.processDeleteNodes(any(Any.class), any(UltifiUri.class))).thenReturn(
-//                Any.pack(response));
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mDeleteNodesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeDeleteNodes_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mDeleteNodesCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeUpdateProperty() {
-//        Status okSts = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        Any response = Any.pack(okSts);
-//        when(mRpcHandler.processLDSUpdateProperty(any(Any.class), any(UltifiUri.class))).thenReturn(
-//                Any.pack(response));
-//
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUpdatePropertyCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertEquals(response, result);
-//            assertNull(ex);
-//        });
-//
-//    }
-//
-//    @Test
-//    public void negative_executeUpdateProperty() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUpdatePropertyCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeRegisterNotification() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mRegisterCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.UNIMPLEMENTED_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeRegisterNotification_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mRegisterCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void positive_executeUnRegisterNotification() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUnRegisterCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.UNIMPLEMENTED_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void negative_executeUnregisterNotification_throw_exception() {
-//        CompletableFuture<Any> fut = new CompletableFuture<>();
-//        mHandler.onEvent(mUnRegisterCloudEvent, fut);
-//
-//        fut.whenComplete((result, ex) -> {
-//            assertNull(ex);
-//            try {
-//                Status resp = result.unpack(Status.class);
-//                assertEquals(Code.FAILED_PRECONDITION_VALUE, resp.getCode());
-//            } catch (InvalidProtocolBufferException e) {
-//                e.printStackTrace();
-//            }
-//        });
-//    }
-//
-//    @Test
-//    public void testOnCreate() {
-//        setPropertySdvEnabled(true);
-//        mService = Robolectric.setupService(UDiscoveryService.class);
-//        setPropertySdvEnabled(false);
-//        mService = Robolectric.setupService(UDiscoveryService.class);
-//    }
-//
-//    @SuppressWarnings("AssertBetweenInconvertibleTypes")
-//    @Test
-//    public void testBinder() {
-//        setPropertySdvEnabled(true);
-//        assertNotEquals(mService, mService.onBind(new Intent()));
-//        setPropertySdvEnabled(false);
-//        assertNotEquals(mService, mService.onBind(new Intent()));
-//    }
-//
-//    @Test
-//    public void shutDown() throws InterruptedException {
-//        when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
-//        Status ok = Status.newBuilder().setCode(Code.OK_VALUE).build();
-//        when(mULink.unregisterEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class))).thenReturn(ok);
-//        when(mULink.isConnected()).thenReturn(true);
-//        when(mULink.unregisterEventListener(any(UltifiUri.class),
-//                any(UltifiLink.EventListener.class))).thenReturn(ok);
-//        UriResponse uriResponse = UriResponse.newBuilder()
-//                .addUris("ultifi://vcu.VIN.veh.ultifi.gm.com").build();
-//        Pair<Status, Any> authorityDetails = new Pair<>(ok, Any.pack(uriResponse));
-//        when(mRpcHandler.processLookupUriFromLDS(any(), any())).thenReturn(authorityDetails);
-//        mService.onDestroy();
-//        // wait for unregister async tasks to complete
-//        Thread.sleep(100);
-//        verify(mULink, atLeastOnce()).unregisterEventListener(any(UltifiUri.class),
-//                any(UltifiLink.RequestEventListener.class));
-//    }
-//
-//    @Test
-//    public void positive_networkCallbacks() {
-//        setLogLevel(Log.INFO);
-//        mService.setNetworkStatus(false);
-//        AtomicBoolean flag = new AtomicBoolean(false);
-//        NetworkStatusInterface consumer = flag::set;
-//        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
-//
-//        cb.onAvailable(null);
-//        assertTrue(flag.get());
-//        cb.onLost(null);
-//        assertFalse(flag.get());
-//        cb.onCapabilitiesChanged(null, null);
-//    }
-//
-//    @Test
-//    public void positive_networkCallbacks_verbose() {
-//        setLogLevel(Log.VERBOSE);
-//        mService.setNetworkStatus(false);
-//        AtomicBoolean flag = new AtomicBoolean(false);
-//        NetworkStatusInterface consumer = status -> {
-//            flag.set(status);
-//        };
-//        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
-//
-//        cb.onAvailable(null);
-//        assertTrue(flag.get());
-//        cb.onLost(null);
-//        assertFalse(flag.get());
-//        cb.onCapabilitiesChanged(null, null);
-//    }
+    @Test
+    public void negative_ulink_connect_exception() {
+        CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(mFailedStatus);
+        ULink mockLink = mock(ULink.class);
+        when(mockLink.connect()).thenReturn(connectFut);
+        boolean bException = false;
+        try {
+            new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mConnectivityMgr);
+        } catch (CompletionException e) {
+            bException = true;
+            Log.e(LOG_TAG, join(Key.MESSAGE, "negative_ulink_connect_exception", Key.FAILURE), e);
+        }
+        assertTrue(bException);
+    }
+
+    @Test
+    public void negative_ulink_isConnected_false() {
+        ULink mockLink = mock(ULink.class);
+        //USubscription.Stub mockStub = mock(USubscription.Stub.class);
+        CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
+
+        when(mockLink.connect()).thenReturn(connectFut);
+        when(mockLink.isConnected()).thenReturn(false);
+
+        new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mConnectivityMgr);
+
+        verify(mockLink, never()).registerRpcListener(any(UUri.class),
+                any(URpcListener.class));
+        //verify(mockStub, never()).createTopic(any(CreateTopicRequest.class));
+    }
+
+    @Test
+    public void negative_handler_uninitialized_exception() throws InterruptedException {
+        LoadUtility mockLoader = mock(LoadUtility.class);
+        when(mockLoader.initializeLDS()).thenReturn(LoadUtility.initLDSCode.FAILURE);
+        new UDiscoveryService(mContext, mRpcHandler, mEULink, mockLoader, mConnectivityMgr);
+
+        // sleep to ensure registerAllMethods completes in the async thread before the verify
+        // registerEventListener call below
+        Thread.sleep(100);
+
+        // capture the request event listener to inject rpc request cloud events
+        ArgumentCaptor<URpcListener> captor = ArgumentCaptor.forClass(
+                URpcListener.class);
+        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
+        URpcListener handler = captor.getValue();
+
+        List<UMessage> UMessageList = List.of(mLookupUriUMsg,
+                mFindNodeUMsg,
+                mAddNodesUMsg,
+                mDeleteNodesUMsg,
+                mUpdatePropertyUMsg,
+                mRegisterUMsg,
+                mUnRegisterUMsg);
+        UPayload response = packToAny(mFailedStatus);
+        for (int i = 0; i < UMessageList.size(); i++) {
+            CompletableFuture<UPayload> fut = new CompletableFuture<>();
+            handler.onReceive(UMessageList.get(i), fut);
+            fut.whenComplete((result, ex) -> {
+                assertEquals(response, result);
+                assertNotNull(ex);
+            });
+        }
+    }
+
+    @Test
+    public void negative_uLink_registerMethod_exception() throws InterruptedException {
+        CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
+        when(mEULink.connect()).thenReturn(connectFut);
+
+        when(mEULink.registerRpcListener(any(UUri.class),
+                any(URpcListener.class))).thenReturn(mFailedStatus);
+
+        new UDiscoveryService(mContext, mRpcHandler, mEULink, mDatabaseLoader, mConnectivityMgr);
+        // wait for register async tasks to complete
+        Thread.sleep(100);
+        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class),
+                any(URpcListener.class));
+    }
+
+    @Test
+    public void negative_uLink_unRegisterMethod_exception() throws InterruptedException {
+        //when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
+        when(mEULink.unregisterRpcListener(any(UUri.class),
+                any(URpcListener.class))).thenReturn(mFailedStatus);
+
+        mService.onDestroy();
+        // wait for unregister async tasks to complete
+        Thread.sleep(100);
+        verify(mEULink, atLeastOnce()).unregisterRpcListener(any(UUri.class),
+                any(URpcListener.class));
+    }
+
+    @Test
+    public void negative_handleRequestEvent() {
+        UUri uri = UUri.newBuilder().setEntity(SERVICE).
+                setResource(UResourceBuilder.forRpcRequest("fakeMethod")).build();
+        UMessage uMsg = buildUMessage(uri.toString(), packToAny(Any.getDefaultInstance()));
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(uMsg, fut);
+        fut.whenComplete((result, ex) -> {
+            assertNotNull(ex);
+            assertEquals(UCode.INVALID_ARGUMENT_VALUE, toStatus(ex).getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeLookupUri_LDS() {
+        UPayload lookupUriResult = packToAny(mLookupUriResponse);
+        when(mRpcHandler.processLookupUriFromLDS(any(UMessage.class))).thenReturn(lookupUriResult);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mLookupUriUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(lookupUriResult, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void positive_executeLookupUri_LDS_not_found() {
+        Any responseMessage = Any.pack(mLookupUriResponse);
+        UPayload lookupUriResult = packToAny(mNotFoundStatus);
+        when(mRpcHandler.processLookupUriFromLDS(any(UMessage.class))).thenReturn(lookupUriResult);
+
+        UMessage uMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UMessage.getDefaultInstance()));
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(uMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(responseMessage, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void negative_executeLookupUri_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mLookupUriUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            LookupUriResponse resp = unpack(result, LookupUriResponse.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.INVALID_ARGUMENT_VALUE, resp.getStatus().getCodeValue());
+        });
+    }
+
+    @Test
+    public void positive_executeFindNodes_LDS() {
+        Any response = Any.pack(mFindNodesResponse);
+        UPayload findNodeResult = packToAny(response);
+        when(mRpcHandler.processFindNodesFromLDS(any(UMessage.class))).thenReturn(findNodeResult);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mFindNodeUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void positive_executeFindNodes_LDS_not_found() {
+        Any response = Any.pack(mFindNodesResponse);
+        UPayload findNodeResult = packToAny(response);
+        when(mRpcHandler.processFindNodesFromLDS(any(UMessage.class))).thenReturn(findNodeResult);
+
+        UMessage uMsg = buildUMessage(METHOD_FIND_NODES, UPayload.getDefaultInstance());
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(uMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void executeFindNodes_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mFindNodeUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            FindNodesResponse resp = unpack(result, FindNodesResponse.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.INVALID_ARGUMENT, resp.getStatus().getCode());
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void positive_executeUpdateNode() {
+        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UPayload response = packToAny(okSts);
+        when(mRpcHandler.processLDSUpdateNode(any(UMessage.class))).thenReturn(response);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUpdateNodeUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void negative_executeUpdateNode_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUpdateNodeUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeFindNodesProperty() {
+        UPayload response = packToAny(mFindNodePropertiesResponse);
+        when(mRpcHandler.processFindNodeProperties(any(UMessage.class))).thenReturn(response);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mFindNodePropertiesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void negative_executeFindNodesProperty_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mFindNodePropertiesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeAddNodes() {
+        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UPayload response = packToAny(okSts);
+        when(mRpcHandler.processAddNodesLDS(any(UMessage.class))).thenReturn(response);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mAddNodesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void negative_executeAddNodes_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mAddNodesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeDeleteNodes() {
+        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UPayload response = packToAny(okSts);
+        when(mRpcHandler.processDeleteNodes(any(UMessage.class))).thenReturn(response);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mDeleteNodesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+    }
+
+    @Test
+    public void negative_executeDeleteNodes_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mDeleteNodesUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeUpdateProperty() {
+        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UPayload response = packToAny(okSts);
+        when(mRpcHandler.processLDSUpdateProperty(any(UMessage.class))).thenReturn(response);
+
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUpdatePropertyUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertEquals(response, result);
+            assertNull(ex);
+        });
+
+    }
+
+    @Test
+    public void negative_executeUpdateProperty() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUpdatePropertyUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeRegisterNotification() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mRegisterUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.UNIMPLEMENTED_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void negative_executeRegisterNotification_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mRegisterUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void positive_executeUnRegisterNotification() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUnRegisterUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.UNIMPLEMENTED_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void negative_executeUnregisterNotification_throw_exception() {
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(mUnRegisterUMsg, fut);
+
+        fut.whenComplete((result, ex) -> {
+            assertNull(ex);
+            UStatus resp = unpack(result, UStatus.class).
+                    orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
+            assertEquals(UCode.FAILED_PRECONDITION_VALUE, resp.getCode());
+        });
+    }
+
+    @Test
+    public void testOnCreate() {
+        UDiscoveryService service = Robolectric.setupService(UDiscoveryService.class);
+        assertNotEquals(mService, service);
+    }
+
+    @SuppressWarnings("AssertBetweenInconvertibleTypes")
+    @Test
+    public void testBinder() {
+        assertNotEquals(mService, mService.onBind(new Intent()));
+    }
+
+    @Test
+    public void shutDown() throws InterruptedException {
+        //when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
+        UStatus ok = UStatus.newBuilder().setCode(UCode.OK).build();
+        when(mEULink.unregisterRpcListener(any(UUri.class),
+                any(URpcListener.class))).thenReturn(ok);
+        when(mEULink.isConnected()).thenReturn(true);
+        when(mEULink.unregisterRpcListener(any(UUri.class),
+                any(URpcListener.class))).thenReturn(ok);
+        UEntity entity = UEntity.newBuilder().setName("vcu.VIN.veh.ultifi.gm.com").build();
+        UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
+        LookupUriResponse uriResponse = LookupUriResponse.newBuilder().setUris(UUriBatch.newBuilder().addUris(uri).build()).build();
+        UPayload authorityDetails = packToAny(uriResponse);
+        when(mRpcHandler.processLookupUriFromLDS(any(UMessage.class))).thenReturn(authorityDetails);
+        mService.onDestroy();
+        // wait for unregister async tasks to complete
+        Thread.sleep(100);
+        verify(mEULink, atLeastOnce()).unregisterRpcListener(any(UUri.class),
+                any(URpcListener.class));
+    }
+
+    @Test
+    public void positive_networkCallbacks() {
+        setLogLevel(Log.INFO);
+        mService.setNetworkStatus(false);
+        AtomicBoolean flag = new AtomicBoolean(false);
+        NetworkStatusInterface consumer = flag::set;
+        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
+
+        cb.onAvailable(null);
+        assertTrue(flag.get());
+        cb.onLost(null);
+        assertFalse(flag.get());
+        cb.onCapabilitiesChanged(null, null);
+    }
+
+    @Test
+    public void positive_networkCallbacks_verbose() {
+        setLogLevel(Log.VERBOSE);
+        mService.setNetworkStatus(false);
+        AtomicBoolean flag = new AtomicBoolean(false);
+        NetworkStatusInterface consumer = status -> {
+            flag.set(status);
+        };
+        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
+
+        cb.onAvailable(null);
+        assertTrue(flag.get());
+        cb.onLost(null);
+        assertFalse(flag.get());
+        cb.onCapabilitiesChanged(null, null);
+    }
 }

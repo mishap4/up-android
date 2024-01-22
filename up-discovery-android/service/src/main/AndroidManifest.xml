@@ -52,11 +52,11 @@
             android:exported="true"
             android:singleUser="true">
             <meta-data
-                android:name="ultifi.entity.name"
+                android:name="uprotocol.entity.name"
                 android:value="core.udiscovery" />
             <meta-data
-                android:name="ultifi.entity.version"
-                android:value="2" />
+                android:name="uprotocol.entity.version"
+                android:value="3" />
             <meta-data
                 android:name="ultifi.startup.trigger"
                 android:value="asap" />

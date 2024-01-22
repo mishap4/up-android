@@ -64,7 +64,7 @@ public class LoadUtilityTest extends TestBase {
     @Mock
     public Context appContext;
     @Mock
-    public ULink mEclipseUlink;
+    public ULink mEUlink;
     @Mock
     public Notifier mNotifier;
     @Rule //initMocks

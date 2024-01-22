@@ -28,6 +28,8 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
+import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.quote;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 
 import android.app.NotificationChannel;
@@ -56,12 +58,16 @@ import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.LookupUriResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.CreateTopicRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.USubscriptionProto;
+import org.eclipse.uprotocol.rpc.CallOptions;
 import org.eclipse.uprotocol.rpc.URpcListener;
 import org.eclipse.uprotocol.uri.builder.UResourceBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UPayload;
+import org.eclipse.uprotocol.v1.UResource;
 import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 
@@ -76,7 +82,7 @@ import java.util.function.BiConsumer;
 @SuppressWarnings({"java:S1200", "java:S3008", "java:S1134"})
 public class UDiscoveryService extends Service implements NetworkStatusInterface {
     public static final String LOG_TAG = Formatter.tag("core", UDiscoveryService.class.getSimpleName());
-    public static final UEntity UDISCOVERY_SERVICE = UEntity.newBuilder().setName("core.udiscovery").setVersionMajor(2).build();
+    public static final UEntity UDISCOVERY_SERVICE = UEntity.newBuilder().setName("core.udiscovery").setVersionMajor(3).build();
     public static final String METHOD_LOOKUP_URI = "LookupUri";
     public static final String METHOD_FIND_NODES = "FindNodes";
     public static final String METHOD_FIND_NODE_PROPERTIES = "FindNodeProperties";
@@ -91,7 +97,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     private static final String NOTIFICATION_CHANNEL_ID = UDiscoveryService.class.getPackageName();
     private static final CharSequence NOTIFICATION_CHANNEL_NAME = "UDiscoveryService";
     private static final int NOTIFICATION_ID = 1;
-    //private USubscription.Stub mUsubStub;
+    public static final UUri TOPIC_NODE_NOTIFICATION = buildCreateTopicUri();
     protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
     private final ScheduledExecutorService mExecutor = Executors.newScheduledThreadPool(1);
     private final Map<UUri, BiConsumer<UMessage, CompletableFuture<UPayload>>> mMethodHandlers = new HashMap<>();
@@ -100,7 +106,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     private RPCHandler mRpcHandler;
     private LoadUtility mDatabaseLoader;
     private AtomicBoolean mDatabaseInitialized = new AtomicBoolean(false);
-    private ULink mEclipseULink;
+    private ULink mEULink;
     private ConnectivityManager mConnectivityManager;
     private CompletableFuture<Boolean> mNetworkAvailableFuture = new CompletableFuture<>();
     private Binder mBinder = new Binder() {
@@ -116,10 +122,17 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     UDiscoveryService(Context context, RPCHandler rpcHandler, ULink uLink,
                       LoadUtility dbLoader, ConnectivityManager connectivityMgr) {
         mRpcHandler = rpcHandler;
-        mEclipseULink = uLink;
+        mEULink = uLink;
         mDatabaseLoader = dbLoader;
         mConnectivityManager = connectivityMgr;
         ulinkInit().join();
+    }
+
+    private static UUri buildCreateTopicUri() {
+        final UUri.Builder builder = UUri.newBuilder()
+                .setEntity(UDISCOVERY_SERVICE)
+                .setResource(UResource.newBuilder().setName("nodes").setMessage("Notification").build());
+        return builder.build();
     }
 
     private static void logStatus(@NonNull String message, @NonNull UStatus status) {
@@ -157,7 +170,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
         super.onCreate();
         Log.d(LOG_TAG, join(Key.EVENT, "onCreate - Starting uDiscovery"));
 
-        mEclipseULink = ULink.create(getApplicationContext(), UDISCOVERY_SERVICE, mExecutor, (link, ready) -> {
+        mEULink = ULink.create(getApplicationContext(), UDISCOVERY_SERVICE, mExecutor, (link, ready) -> {
             if (ready) {
                 Log.i(LOG_TAG, join(Key.EVENT, "uLink is connected"));
             } else {
@@ -165,7 +178,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
             }
         });
         ObserverManager observerManager = new ObserverManager(this);
-        Notifier notifier = new Notifier(observerManager, mEclipseULink);
+        Notifier notifier = new Notifier(observerManager, mEULink);
         DiscoveryManager discoveryManager = new DiscoveryManager(notifier);
         AssetUtility assetUtility = new AssetUtility();
         mDatabaseLoader = new LoadUtility(this, assetUtility, discoveryManager);
@@ -173,6 +186,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
         mConnectivityManager = this.getSystemService(ConnectivityManager.class);
         registerNetworkCallback();
         ulinkInit();
+        startForegroundService();
     }
 
     private void startForegroundService() {
@@ -195,10 +209,10 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private synchronized CompletableFuture<Void> ulinkInit() {
-        return (CompletableFuture<Void>) mEclipseULink.connect()
+        return (CompletableFuture<Void>) mEULink.connect()
                 .thenCompose(status -> {
                     logStatus("uLink connect", status);
-                    Log.i(LOG_TAG, join(Key.MESSAGE, "uLink.isConnected()", Key.CONNECTION, mEclipseULink.isConnected()));
+                    Log.i(LOG_TAG, join(Key.MESSAGE, "uLink.isConnected()", Key.CONNECTION, mEULink.isConnected()));
                     return isOk(status) ?
                             CompletableFuture.completedFuture(status) :
                             CompletableFuture.failedFuture(new UStatusException(status));
@@ -206,7 +220,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                     LoadUtility.initLDSCode code = mDatabaseLoader.initializeLDS();
                     boolean isInitialized = (code != LoadUtility.initLDSCode.FAILURE);
                     mDatabaseInitialized.set(isInitialized);
-                    if (mEclipseULink.isConnected()) {
+                    if (mEULink.isConnected()) {
                         registerAllMethods();
                         createNotificationTopic();
                     }
@@ -214,7 +228,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private CompletableFuture<Void> registerAllMethods() {
-        Log.i(LOG_TAG, join(Key.EVENT, "registerAllMethods, uLink Connect", Key.STATUS, mEclipseULink.isConnected()));
+        Log.i(LOG_TAG, join(Key.EVENT, "registerAllMethods, uLink Connect", Key.STATUS, mEULink.isConnected()));
         return CompletableFuture.allOf(
                         registerMethod(METHOD_LOOKUP_URI, this::executeLookupUri),
                         registerMethod(METHOD_FIND_NODES, this::executeFindNodes),
@@ -345,7 +359,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
         final UUri methodUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).
                 setResource(UResourceBuilder.forRpcRequest(methodName)).build();
         return CompletableFuture.supplyAsync(() -> {
-            final UStatus status = mEclipseULink.registerRpcListener(methodUri, mRequestEventListener);
+            final UStatus status = mEULink.registerRpcListener(methodUri, mRequestEventListener);
             logStatus("Register listener for '" + methodUri + "'", status);
             if (isOk(status)) {
                 mMethodHandlers.put(methodUri, handler);
@@ -357,9 +371,10 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private CompletableFuture<UStatus> unregisterMethod(@NonNull String methodName) {
-        final UUri methodUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).setResource(UResourceBuilder.forRpcRequest(methodName)).build();
+        final UUri methodUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).
+                setResource(UResourceBuilder.forRpcRequest(methodName)).build();
         return CompletableFuture.supplyAsync(() -> {
-            final UStatus status = mEclipseULink.registerRpcListener(methodUri, mRequestEventListener);
+            final UStatus status = mEULink.unregisterRpcListener(methodUri, mRequestEventListener);
             logStatus("Unregister listener for '" + methodUri + "'", status);
             mMethodHandlers.remove(methodUri);
             if (!isOk(status)) {
@@ -387,7 +402,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                     errorStatus(LOG_TAG, "onDestroy", toStatus(e));
                     return null;
                 })
-                .thenCompose(it -> mEclipseULink.disconnect())
+                .thenCompose(it -> mEULink.disconnect())
                 .whenComplete((status, exception) -> logStatus("uLink disconnect", status));
         mRpcHandler.shutdown();
         super.onDestroy();
@@ -420,13 +435,13 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private void createNotificationTopic() {
-//        Log.d(LOG_TAG, Key.REQUEST, "CreateTopic", Key.URI, quote(TOPIC_NODE_NOTIFICATION));
-//
-//        mUsubStub.createTopic(CreateTopicRequest.newBuilder()
-//                        .setTopic(Topic.newBuilder().setUri(TOPIC_NODE_NOTIFICATION).build()).build())
-//                .exceptionally(StatusUtils::throwableToStatus)
-//                .thenAccept(status -> {
-//                    Log.status(LOG_TAG, "createNotificationTopic", status);
-//                });
+        Log.d(LOG_TAG, join(Key.REQUEST, "CreateTopic", Key.URI, quote(TOPIC_NODE_NOTIFICATION.toString())));
+        mEULink.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)
+                .exceptionally(e ->{
+                    Log.e(LOG_TAG, join("registerAllMethods", toStatus(e)));
+                    return null;
+                }).thenAccept(status -> {
+                    Log.i(LOG_TAG, join("createNotificationTopic", status));
+                });
     }
 }
