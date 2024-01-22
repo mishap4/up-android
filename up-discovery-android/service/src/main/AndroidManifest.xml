@@ -58,13 +58,13 @@
                 android:name="uprotocol.entity.version"
                 android:value="3" />
             <meta-data
-                android:name="ultifi.startup.trigger"
+                android:name="uprotocol.startup.trigger"
                 android:value="asap" />
             <meta-data
-                android:name="ultifi.startup.user"
+                android:name="uprotocol.startup.user"
                 android:value="system" />
             <meta-data
-                android:name="ultifi.entity.permissionLevel"
+                android:name="uprotocol.entity.permissionLevel"
                 android:value="5" />
         </service>
     </application>
