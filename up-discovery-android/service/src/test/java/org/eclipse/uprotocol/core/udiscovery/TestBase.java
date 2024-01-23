@@ -31,7 +31,6 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
 
 import org.eclipse.uprotocol.common.util.log.Key;
@@ -40,8 +39,6 @@ import org.eclipse.uprotocol.core.udiscovery.v3.NotificationsRequest;
 import org.eclipse.uprotocol.core.udiscovery.v3.ObserverInfo;
 import org.eclipse.uprotocol.v1.UAuthority;
 import org.eclipse.uprotocol.v1.UEntity;
-import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UUri;
 
 import java.util.List;
 
@@ -69,42 +66,6 @@ public class TestBase {
     public static final UEntity TEST_ENTITY = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
     public static final UAuthority TEST_AUTHORITY2 = UAuthority.newBuilder().setName(TEST_ALTERNATE_ENTITY).build();
     public static final int DEFAULT_DEPTH = -1;
-/*    public static final UResource LOOKUPURI_METHOD = forRpc(METHOD_LOOKUP_URI);
-    public static final Message LOCAL_LOOKUPURI = UMessage.newBuilder().se
-    public static final UResource FINDNODEURI_METHOD = forRpc(METHOD_FIND_NODES);
-    public static final UltifiUri LOCAL_FINDNODEURI = new UltifiUri(local(), SERVICE, FINDNODEURI_METHOD);
-    public static final UResource UPDATENODE_METHOD = forRpc(METHOD_UPDATE_NODE);
-    public static final UltifiUri LOCAL_UPDATENODE = new UltifiUri(local(), SERVICE, UPDATENODE_METHOD);
-    public static final UResource FINDNODEPROPERTY_METHOD = forRpc(METHOD_FIND_NODE_PROPERTIES);
-    public static final UltifiUri LOCAL_FINDNODEPROPERTY = new UltifiUri(local(), SERVICE, FINDNODEPROPERTY_METHOD);
-    public static final UResource ADDNODES_METHOD = forRpc(METHOD_ADD_NODES);
-    public static final UltifiUri LOCAL_ADDNODES = new UltifiUri(local(), SERVICE, ADDNODES_METHOD);
-    public static final UResource DELETENODES_METHOD = forRpc(METHOD_DELETE_NODES);
-    public static final UltifiUri LOCAL_DELETENODES = new UltifiUri(local(), SERVICE, DELETENODES_METHOD);
-    public static final UResource UPDATEPROPERTY_METHOD = forRpc(METHOD_UPDATE_PROPERTY);
-    public static final UltifiUri LOCAL_UPDATEPROPERTY = new UltifiUri(local(), SERVICE, UPDATEPROPERTY_METHOD);
-    public static final UResource REGISTER_NOTIFICATION_METHOD = forRpc(METHOD_REGISTER_FOR_NOTIFICATIONS);
-    public static final UltifiUri LOCAL_REGISTER_NOTIFICATION = new UltifiUri(local(), SERVICE, REGISTER_NOTIFICATION_METHOD);
-    public static final UResource UNREGISTER_NOTIFICATION_METHOD = forRpc(METHOD_UNREGISTER_FOR_NOTIFICATIONS);
-    public static final UltifiUri LOCAL_UNREGISTER_NOTIFICATION= new UltifiUri(local(), SERVICE, UNREGISTER_NOTIFICATION_METHOD);
-    public static final UltifiUri LOCAL_NODE_URI1= new UltifiUri(local(), SERVICE, "Node1");
-    public static final UltifiUri LOCAL_NODE_URI2= new UltifiUri(local(), SERVICE, "Node2");
-    public static final UltifiUri LOCAL_OBSERVER_URI1= new UltifiUri(local(), SERVICE, "Observer1");
-    public static final UltifiUri LOCAL_OBSERVER_URI2= new UltifiUri(local(), SERVICE, "Observer2");
-    public static final UltifiUri REMOTE_OBSERVER_URI3= new UltifiUri(remote("azure", "bo.ultifi.gm.com"), SERVICE, "Observer3");
-    public static final String NODE1 = LOCAL_NODE_URI1.uProtocolUri();
-    public static final String NODE2 = LOCAL_NODE_URI2.uProtocolUri();
-    public static final String INVALID_NODE = "Invalid Node";
-    public static final UltifiUri LOCAL_INVALID_NODE_URI= new UltifiUri(local(), SERVICE, "Invalid Node");
-    public static final UltifiUri ULTIFI_UOTA_ROOTNODE_URI= new UltifiUri(local(), new UEntity("", ""), UResource.empty());
-    public static final UltifiUri BODY_ACCESS_V1 = new UltifiUri(local(),
-            new UEntity("body.access", "1"), UResource.empty());
-    public static final UltifiUri BODY_ACCESS = new UltifiUri(local(),
-            new UEntity("body.access", ""), UResource.empty());
-    public static final String BODY_ACCESS_V1_URI = BODY_ACCESS_V1.uProtocolUri();
-    public static final String OBSERVER1 = LOCAL_OBSERVER_URI1.uProtocolUri();
-    public static final String OBSERVER2 = LOCAL_OBSERVER_URI2.uProtocolUri();
-    protected static final long DELAY_LONG_MS = 500;*/
 
     protected static final int TTL = 10000;
 
