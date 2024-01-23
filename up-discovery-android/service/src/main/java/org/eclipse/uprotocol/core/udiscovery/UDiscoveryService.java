@@ -28,7 +28,6 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
-import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.quote;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 
@@ -52,14 +51,11 @@ import org.eclipse.uprotocol.ULink;
 import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
-import org.eclipse.uprotocol.core.R;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodePropertiesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.FindNodesResponse;
 import org.eclipse.uprotocol.core.udiscovery.v3.LookupUriResponse;
-import org.eclipse.uprotocol.core.usubscription.v3.CreateTopicRequest;
-import org.eclipse.uprotocol.core.usubscription.v3.USubscriptionProto;
 import org.eclipse.uprotocol.rpc.CallOptions;
 import org.eclipse.uprotocol.rpc.URpcListener;
 import org.eclipse.uprotocol.uri.builder.UResourceBuilder;
@@ -93,7 +89,6 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     public static final String METHOD_REGISTER_FOR_NOTIFICATIONS = "RegisterForNotifications";
     public static final String METHOD_UNREGISTER_FOR_NOTIFICATIONS = "UnregisterForNotifications";
     private static final String DATABASE_NOT_INITIALIZED = "Database not initialized";
-    private static final String PROPERTY_SDV_ENABLED = "persist.sys.gm.sdv_enable";
     private static final String NOTIFICATION_CHANNEL_ID = UDiscoveryService.class.getPackageName();
     private static final CharSequence NOTIFICATION_CHANNEL_NAME = "UDiscoveryService";
     private static final int NOTIFICATION_ID = 1;
@@ -109,7 +104,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     private ULink mEULink;
     private ConnectivityManager mConnectivityManager;
     private CompletableFuture<Boolean> mNetworkAvailableFuture = new CompletableFuture<>();
-    private Binder mBinder = new Binder() {
+    private final Binder mBinder = new Binder() {
     };
 
     // This constructor is for service initialization
@@ -136,7 +131,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     }
 
     private static void logStatus(@NonNull String message, @NonNull UStatus status) {
-        //Log.status(LOG_TAG, "logStatus", status, Key.MESSAGE, message);
+        Log.i(LOG_TAG, join("logStatus", status, Key.MESSAGE, message));
     }
 
     public static @NonNull UStatus errorStatus(@NonNull String tag, @NonNull String method, @NonNull UStatus status,
@@ -227,9 +222,9 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                 });
     }
 
-    private CompletableFuture<Void> registerAllMethods() {
+    private void registerAllMethods() {
         Log.i(LOG_TAG, join(Key.EVENT, "registerAllMethods, uLink Connect", Key.STATUS, mEULink.isConnected()));
-        return CompletableFuture.allOf(
+        CompletableFuture.allOf(
                         registerMethod(METHOD_LOOKUP_URI, this::executeLookupUri),
                         registerMethod(METHOD_FIND_NODES, this::executeFindNodes),
                         registerMethod(METHOD_UPDATE_NODE, this::executeUpdateNode),
@@ -440,8 +435,6 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                 .exceptionally(e ->{
                     Log.e(LOG_TAG, join("registerAllMethods", toStatus(e)));
                     return null;
-                }).thenAccept(status -> {
-                    Log.i(LOG_TAG, join("createNotificationTopic", status));
-                });
+                }).thenAccept(status -> Log.i(LOG_TAG, join("createNotificationTopic", status)));
     }
 }
