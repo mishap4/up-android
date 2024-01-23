@@ -30,6 +30,8 @@ import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.eclipse.uprotocol.common.util.log.Formatter;
 
 import java.io.BufferedReader;
@@ -42,15 +44,29 @@ import java.io.IOException;
 public class AssetUtility {
 
     private static final String LOG_TAG = Formatter.tag("core", AssetUtility.class.getSimpleName());
+    private BufferedReader mBufferReader;
+    private FileWriter mWriter;
+    private File mFile;
 
     public AssetUtility() {
+        mBufferReader = null;
+        mWriter = null;
+        mFile = null;
+    }
+
+    @VisibleForTesting
+    AssetUtility(BufferedReader reader, FileWriter writer, File file) {
+        mBufferReader = reader;
+        mWriter = writer;
+        mFile = file;
     }
 
     public String readFileFromInternalStorage(Context context, String sFileName) {
         try {
             final String filepath = context.getFilesDir() + "/" + sFileName;
             final StringBuilder buffer = new StringBuilder();
-            BufferedReader reader = new BufferedReader(new FileReader(filepath));
+            BufferedReader reader = (null != mBufferReader) ? mBufferReader :
+                    new BufferedReader(new FileReader(filepath));
             String currentLine;
             while ((currentLine = reader.readLine()) != null) {
                 buffer.append(currentLine);
@@ -70,7 +86,7 @@ public class AssetUtility {
     public boolean writeFileToInternalStorage(Context context, String sFileName, String sBody) {
         try {
             final File fd = new File(context.getFilesDir(), sFileName);
-            final FileWriter writer = new FileWriter(fd);
+            final FileWriter writer = (null != mWriter) ? mWriter : new FileWriter(fd);
             writer.append(sBody);
             writer.flush();
             writer.close();

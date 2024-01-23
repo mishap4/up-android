@@ -33,6 +33,8 @@ import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_DB_FILE
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
@@ -46,17 +48,28 @@ public class LoadUtility {
     public final AssetUtility mAssetUtil;
     public final DiscoveryManager mDiscoveryMgr;
     private final Context mContext;
+    @VisibleForTesting
+    private initLDSCode mCode;
 
     public LoadUtility(Context context, AssetUtility au, DiscoveryManager mgr) {
         mContext = context;
         mAssetUtil = au;
         mDiscoveryMgr = mgr;
+        mCode = null;
+    }
+
+    @VisibleForTesting
+    LoadUtility(Context context, AssetUtility au, DiscoveryManager mgr, initLDSCode code) {
+        mContext = context;
+        mAssetUtil = au;
+        mDiscoveryMgr = mgr;
+        mCode = code;
     }
 
     public initLDSCode initializeLDS() throws UStatusException {
-        initLDSCode code = initLDSCode.FAILURE;
+        initLDSCode code = (null != mCode) ? mCode : initLDSCode.FAILURE;
         load(LDS_DB_FILENAME);
-        code = initLDSCode.SUCCESS;
+        code = (null != mCode) ? mCode : initLDSCode.SUCCESS;
         if (code == initLDSCode.RECOVERY) {
             Log.w(LOG_TAG, join(Key.MESSAGE, "initializing empty LDS database"));
             mDiscoveryMgr.init(LDS_AUTHORITY);

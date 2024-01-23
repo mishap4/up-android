@@ -41,9 +41,10 @@ import java.util.Base64;
 
 @RunWith(RobolectricTestRunner.class)
 public class IntegrityCheckTest extends IntegrityCheckTestBase {
-    IntegrityCheck integrity = new IntegrityCheck();
     public final String payload = TEST_PAYLOAD;
     public String expectedHash;
+    IntegrityCheck integrity = new IntegrityCheck();
+
     @Before
     public void setUp() throws NoSuchAlgorithmException {
         ShadowLog.stream = System.out;
@@ -79,5 +80,11 @@ public class IntegrityCheckTest extends IntegrityCheckTestBase {
     @Test
     public void negative_empty_input() {
         assertEquals("", integrity.generateHash(""));
+    }
+
+    @Test
+    public void negative_generateHash_NoSuchAlgorithmException() {
+        IntegrityCheck integrityCheck = new IntegrityCheck("adfasfsdfsdf");
+        assertEquals("", integrityCheck.generateHash(payload));
     }
 }

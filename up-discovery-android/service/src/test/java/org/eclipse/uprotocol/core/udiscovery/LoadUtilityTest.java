@@ -24,7 +24,9 @@
 
 package org.eclipse.uprotocol.core.udiscovery;
 
+import static android.util.Log.VERBOSE;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.times;
@@ -87,7 +89,7 @@ public class LoadUtilityTest extends TestBase {
 
     private static void setLogLevel(int level) {
         LoadUtility.DEBUG = (level <= Log.DEBUG);
-        LoadUtility.VERBOSE = (level <= Log.VERBOSE);
+        LoadUtility.VERBOSE = (level <= VERBOSE);
     }
 
     @Before
@@ -97,6 +99,25 @@ public class LoadUtilityTest extends TestBase {
         integrity = new IntegrityCheck();
         discoveryMgr = new DiscoveryManager(mNotifier);
         loadUtil = Mockito.spy(new LoadUtility(appContext, assetUtil, discoveryMgr));
+    }
+
+    @Test
+    public void testinitializeLDS() {
+        setLogLevel(VERBOSE);
+        when(assetUtil.readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME)).thenReturn(REGISTRY_JSON);
+        DiscoveryManager discoveryManager = Mockito.spy(new DiscoveryManager(mNotifier));
+        when(discoveryManager.load(REGISTRY_JSON)).thenReturn(true);
+        loadUtil = Mockito.spy(new LoadUtility(appContext, assetUtil, discoveryManager));
+        assertEquals(LoadUtility.initLDSCode.SUCCESS, loadUtil.initializeLDS());
+    }
+
+    @Test
+    public void testinitializeLDS_Recovery() {
+        when(assetUtil.readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME)).thenReturn(REGISTRY_JSON);
+        DiscoveryManager discoveryManager = Mockito.spy(new DiscoveryManager(mNotifier));
+        when(discoveryManager.load(REGISTRY_JSON)).thenReturn(true);
+        loadUtil = Mockito.spy(new LoadUtility(appContext, assetUtil, discoveryManager, LoadUtility.initLDSCode.RECOVERY));
+        assertEquals(LoadUtility.initLDSCode.FAILURE, loadUtil.initializeLDS());
     }
 
     @Test

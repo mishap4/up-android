@@ -50,7 +50,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -153,10 +152,7 @@ public class UDiscoveryServicesTest extends TestBase {
     @Mock
     private LoadUtility mDatabaseLoader;
     private Context mContext;
-/*    @Mock
-    USubscription.Stub mUSubStub;*/
-/*    @Mock
-    private UDiscovery.Stub mStub;*/
+
 
     private static void setLogLevel(int level) {
         UDiscoveryService.VERBOSE = (level <= Log.VERBOSE);
@@ -239,8 +235,11 @@ public class UDiscoveryServicesTest extends TestBase {
         UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
         when(mEULink.registerRpcListener(any(), any())).thenReturn(okStatus);
 
-        CompletableFuture<UStatus> responseCreateTopic = CompletableFuture.completedFuture(STATUS_OK);
-        doReturn(responseCreateTopic).when(mEULink).invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT);
+        CompletableFuture<UPayload> responseCreateTopic = CompletableFuture.completedFuture(packToAny(STATUS_OK));
+        CompletableFuture<UPayload> responseCreateTopicException = CompletableFuture.failedFuture(new UStatusException(UCode.UNKNOWN, "Unable to connect"));
+        when(mEULink.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).thenReturn(responseCreateTopic);
+        when(mEULink.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).
+                thenReturn(responseCreateTopicException);
 
         mContext = InstrumentationRegistry.getInstrumentation().getContext();
         mService = new UDiscoveryService(mContext, mRpcHandler, mEULink, mDatabaseLoader,
@@ -325,8 +324,10 @@ public class UDiscoveryServicesTest extends TestBase {
         List<UMessage> UMessageList = List.of(mLookupUriUMsg,
                 mFindNodeUMsg,
                 mAddNodesUMsg,
+                mUpdateNodeUMsg,
                 mDeleteNodesUMsg,
                 mUpdatePropertyUMsg,
+                mFindNodePropertiesUMsg,
                 mRegisterUMsg,
                 mUnRegisterUMsg);
         UPayload response = packToAny(mFailedStatus);

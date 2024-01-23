@@ -27,6 +27,8 @@ package org.eclipse.uprotocol.core.udiscovery;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.ChecksumInterface;
@@ -39,6 +41,17 @@ import java.util.Base64;
 public class IntegrityCheck implements ChecksumInterface {
     protected static final String LOG_TAG = Formatter.tag("core", IntegrityCheck.class.getSimpleName());
 
+    private String mAlgorithm = "SHA-256";
+
+
+    public IntegrityCheck() {
+    }
+
+    @VisibleForTesting
+    IntegrityCheck(String algo) {
+        mAlgorithm = algo;
+    }
+
     /**
      * @return base64 encoded hash string
      * @fn generateHash
@@ -50,7 +63,7 @@ public class IntegrityCheck implements ChecksumInterface {
             return "";
         }
         try {
-            var digest = MessageDigest.getInstance("SHA-256");
+            var digest = MessageDigest.getInstance(mAlgorithm);
             byte[] bArray = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(bArray);
         } catch (NoSuchAlgorithmException e) {
