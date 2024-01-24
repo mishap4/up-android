@@ -25,11 +25,12 @@
 package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import androidx.annotation.VisibleForTesting;
 
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.ChecksumInterface;
 
@@ -39,7 +40,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
 public class IntegrityCheck implements ChecksumInterface {
-    protected static final String LOG_TAG = Formatter.tag("core", IntegrityCheck.class.getSimpleName());
+    protected static final String TAG = tag(SERVICE.getName());
 
     private String mAlgorithm = "SHA-256";
 
@@ -67,7 +68,7 @@ public class IntegrityCheck implements ChecksumInterface {
             byte[] bArray = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(bArray);
         } catch (NoSuchAlgorithmException e) {
-            errorStatus(LOG_TAG, "generateHash", toStatus(e), Key.MESSAGE, "Failed");
+            logStatus(TAG, "generateHash", toStatus(e), Key.MESSAGE, "Failed");
         }
         return "";
     }

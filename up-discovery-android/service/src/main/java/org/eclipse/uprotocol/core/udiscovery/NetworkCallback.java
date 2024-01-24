@@ -25,6 +25,8 @@
 package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -33,36 +35,35 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
 
-public class NwConnectionCallbacks extends ConnectivityManager.NetworkCallback {
-    private static final String LOG_TAG =  Formatter.tag("core", UDiscoveryService.class.getSimpleName());
+public class NetworkCallback extends ConnectivityManager.NetworkCallback {
+    private static final String TAG = tag(SERVICE.getName());
     private static final String NETWORK = "network";
     private static final String NETWORKCAPABILITIES = "networkcapabilities";
     private NetworkStatusInterface mNwStatusInterface;
 
-    NwConnectionCallbacks(NetworkStatusInterface nwStatusInterface) {
+    NetworkCallback(NetworkStatusInterface nwStatusInterface) {
         mNwStatusInterface = nwStatusInterface;
     }
 
     @Override
     public void onAvailable(@NonNull Network network) {
-        Log.i(LOG_TAG, join(Key.EVENT, "Network available", NETWORK, network));
+        Log.i(TAG, join(Key.EVENT, "Network available", NETWORK, network));
         mNwStatusInterface.setNetworkStatus(true);
     }
 
     @Override
     public void onLost(@NonNull Network network) {
-        Log.i(LOG_TAG, join(Key.EVENT, "Network lost", NETWORK, network));
+        Log.i(TAG, join(Key.EVENT, "Network lost", NETWORK, network));
         mNwStatusInterface.setNetworkStatus(false);
     }
 
     @Override
     public void onCapabilitiesChanged(@NonNull Network network, @NonNull NetworkCapabilities networkCapabilities) {
         if (UDiscoveryService.VERBOSE) {
-            Log.v(LOG_TAG, join(Key.CONNECTION, "Network capabilities changed", Key.STATE, network, NETWORKCAPABILITIES, networkCapabilities));
+            Log.v(TAG, join(Key.CONNECTION, "Network capabilities changed", Key.STATE, network, NETWORKCAPABILITIES, networkCapabilities));
         }
     }
 }

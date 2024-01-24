@@ -25,7 +25,10 @@
 package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
+import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
+import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_ADD_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_DELETE_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_FIND_NODES;
@@ -36,10 +39,8 @@ import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UNR
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_NODE;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_PROPERTY;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.TOPIC_NODE_NOTIFICATION;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.UDISCOVERY_SERVICE;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
-import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.join;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
 import static org.junit.Assert.assertEquals;
@@ -66,9 +67,8 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 
-import org.eclipse.uprotocol.ULink;
+import org.eclipse.uprotocol.UPClient;
 import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.NetworkStatusInterface;
 import org.eclipse.uprotocol.core.udiscovery.v3.AddNodesRequest;
@@ -121,7 +121,7 @@ public class UDiscoveryServicesTest extends TestBase {
     private static final String PROPERTY_SDV_ENABLED = "persist.sys.gm.sdv_enable";
     private static final ByteString mCorruptPayload = ByteString.copyFromUtf8("corrupt payload");
     private static final String TOKEN = "token";
-    private static final String LOG_TAG = Formatter.tag("core", UDiscoveryServicesTest.class.getSimpleName());
+    private static final String TAG = tag(SERVICE.getName());
     private static UStatus mFailedStatus;
     private static UStatus mNotFoundStatus;
     private static UMessage mLookupUriUMsg;
@@ -141,16 +141,14 @@ public class UDiscoveryServicesTest extends TestBase {
     public MockitoRule rule = MockitoJUnit.rule();
     private UDiscoveryService mService;
     private URpcListener mHandler;
-
-    //private UltifiLink.EventListener mNotificationHandler;
     @Mock
-    private ULink mEULink;
+    private UPClient mUpClient;
     @Mock
     private RPCHandler mRpcHandler;
     @Mock
     private ConnectivityManager mConnectivityMgr;
     @Mock
-    private LoadUtility mDatabaseLoader;
+    private DatabaseLoader mDatabaseLoader;
     private Context mContext;
 
 
@@ -194,9 +192,8 @@ public class UDiscoveryServicesTest extends TestBase {
         mLookupUriResponse = lookupUriRespBld.build();
 
         Node node = jsonToNode(REGISTRY_JSON);
-        mFindNodesResponse = FindNodesResponse.newBuilder().addNodes(node).setStatus(
-                UStatus.newBuilder()
-                        .setCode(UCode.OK).setMessage("OK").build()).build();
+        mFindNodesResponse = FindNodesResponse.newBuilder().addNodes(node).setStatus(buildStatus(UCode.OK, "OK")).
+                build();
 
         PropertyValue propString = PropertyValue.newBuilder().setUString("hello world").build();
         PropertyValue propInteger = PropertyValue.newBuilder().setUInteger(2023).build();
@@ -208,17 +205,14 @@ public class UDiscoveryServicesTest extends TestBase {
         fnpRespBld.putProperties("enabled", propBoolean);
         mFindNodePropertiesResponse = fnpRespBld.build();
 
-        mFailedStatus = UStatus.newBuilder()
-                .setCode(UCode.FAILED_PRECONDITION)
-                .setMessage("test exception")
-                .build();
+        mFailedStatus = buildStatus(UCode.FAILED_PRECONDITION, "test exception");
 
-        mNotFoundStatus = UStatus.newBuilder().setCode(UCode.NOT_FOUND).build();
+        mNotFoundStatus = buildStatus(UCode.NOT_FOUND, "NOT FOUND");
     }
 
     private static UMessage buildUMessage(String methodUri, UPayload uPayload) {
         UResource uResource = UResourceBuilder.forRpcRequest(methodUri);
-        UUri uUri = UUri.newBuilder().setEntity(UDISCOVERY_SERVICE).setResource(uResource).build();
+        UUri uUri = UUri.newBuilder().setEntity(SERVICE).setResource(uResource).build();
         UAttributesBuilder uAttributesBuilder = UAttributesBuilder.request(UPriority.UPRIORITY_CS4, uUri, TTL);
         return UMessage.newBuilder().setAttributes(uAttributesBuilder.build()).setPayload(uPayload).build();
     }
@@ -228,21 +222,21 @@ public class UDiscoveryServicesTest extends TestBase {
         ShadowLog.stream = System.out;
 
         CompletableFuture<UStatus> response = CompletableFuture.completedFuture(STATUS_OK);
-        when(mEULink.connect()).thenReturn(response);
-        when(mDatabaseLoader.initializeLDS()).thenReturn(LoadUtility.initLDSCode.SUCCESS);
-        when(mEULink.isConnected()).thenReturn(true);
+        when(mUpClient.connect()).thenReturn(response);
+        when(mDatabaseLoader.initializeLDS()).thenReturn(DatabaseLoader.InitLDSCode.SUCCESS);
+        when(mUpClient.isConnected()).thenReturn(true);
 
-        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
-        when(mEULink.registerRpcListener(any(), any())).thenReturn(okStatus);
+        UStatus okStatus = buildStatus(UCode.OK, "OK");
+        when(mUpClient.registerRpcListener(any(), any())).thenReturn(okStatus);
 
         CompletableFuture<UPayload> responseCreateTopic = CompletableFuture.completedFuture(packToAny(STATUS_OK));
         CompletableFuture<UPayload> responseCreateTopicException = CompletableFuture.failedFuture(new UStatusException(UCode.UNKNOWN, "Unable to connect"));
-        when(mEULink.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).thenReturn(responseCreateTopic);
-        when(mEULink.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).
+        when(mUpClient.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).thenReturn(responseCreateTopic);
+        when(mUpClient.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).
                 thenReturn(responseCreateTopicException);
 
         mContext = InstrumentationRegistry.getInstrumentation().getContext();
-        mService = new UDiscoveryService(mContext, mRpcHandler, mEULink, mDatabaseLoader,
+        mService = new UDiscoveryService(mContext, mRpcHandler, mUpClient, mDatabaseLoader,
                 mConnectivityMgr);
         mService.setNetworkStatus(true);
 
@@ -253,20 +247,9 @@ public class UDiscoveryServicesTest extends TestBase {
         // capture the request event listener to inject rpc request cloud events
         ArgumentCaptor<URpcListener> captor = ArgumentCaptor.forClass(
                 URpcListener.class);
-        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
+        verify(mUpClient, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
         mHandler = captor.getValue();
     }
-
-
-//    private CloudEvent buildRemoteCloudEventRequest(UltifiUri uri, Any payload) {
-//        String rpcUri = buildUriForRpc(TEST_AUTHORITY, SERVICE);
-//        String methodUri = uri.uProtocolUri();
-//        return CloudEventFactory.request(rpcUri, methodUri, payload, UCloudEventAttributes.empty());
-//    }
-//
-//    private void setPropertySdvEnabled(boolean b) {
-//        LoadUtilityTest.setProperty(PROPERTY_SDV_ENABLED, (b) ? "true" : "false");
-//    }
 
     @Test
     public void initialization_test() {
@@ -277,21 +260,21 @@ public class UDiscoveryServicesTest extends TestBase {
     @Test
     public void negative_ulink_connect_exception() {
         CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(mFailedStatus);
-        ULink mockLink = mock(ULink.class);
+        UPClient mockLink = mock(UPClient.class);
         when(mockLink.connect()).thenReturn(connectFut);
         boolean bException = false;
         try {
             new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mConnectivityMgr);
         } catch (CompletionException e) {
             bException = true;
-            Log.e(LOG_TAG, join(Key.MESSAGE, "negative_ulink_connect_exception", Key.FAILURE), e);
+            Log.e(TAG, join(Key.MESSAGE, "negative_ulink_connect_exception", Key.FAILURE), e);
         }
         assertTrue(bException);
     }
 
     @Test
     public void negative_ulink_isConnected_false() {
-        ULink mockLink = mock(ULink.class);
+        UPClient mockLink = mock(UPClient.class);
         //USubscription.Stub mockStub = mock(USubscription.Stub.class);
         CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
 
@@ -307,9 +290,9 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_handler_uninitialized_exception() throws InterruptedException {
-        LoadUtility mockLoader = mock(LoadUtility.class);
-        when(mockLoader.initializeLDS()).thenReturn(LoadUtility.initLDSCode.FAILURE);
-        new UDiscoveryService(mContext, mRpcHandler, mEULink, mockLoader, mConnectivityMgr);
+        DatabaseLoader mockLoader = mock(DatabaseLoader.class);
+        when(mockLoader.initializeLDS()).thenReturn(DatabaseLoader.InitLDSCode.FAILURE);
+        new UDiscoveryService(mContext, mRpcHandler, mUpClient, mockLoader, mConnectivityMgr);
 
         // sleep to ensure registerAllMethods completes in the async thread before the verify
         // registerEventListener call below
@@ -318,7 +301,7 @@ public class UDiscoveryServicesTest extends TestBase {
         // capture the request event listener to inject rpc request cloud events
         ArgumentCaptor<URpcListener> captor = ArgumentCaptor.forClass(
                 URpcListener.class);
-        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
+        verify(mUpClient, atLeastOnce()).registerRpcListener(any(UUri.class), captor.capture());
         URpcListener handler = captor.getValue();
 
         List<UMessage> UMessageList = List.of(mLookupUriUMsg,
@@ -344,28 +327,28 @@ public class UDiscoveryServicesTest extends TestBase {
     @Test
     public void negative_uLink_registerMethod_exception() throws InterruptedException {
         CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
-        when(mEULink.connect()).thenReturn(connectFut);
+        when(mUpClient.connect()).thenReturn(connectFut);
 
-        when(mEULink.registerRpcListener(any(UUri.class),
+        when(mUpClient.registerRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(mFailedStatus);
 
-        new UDiscoveryService(mContext, mRpcHandler, mEULink, mDatabaseLoader, mConnectivityMgr);
+        new UDiscoveryService(mContext, mRpcHandler, mUpClient, mDatabaseLoader, mConnectivityMgr);
         // wait for register async tasks to complete
         Thread.sleep(100);
-        verify(mEULink, atLeastOnce()).registerRpcListener(any(UUri.class),
+        verify(mUpClient, atLeastOnce()).registerRpcListener(any(UUri.class),
                 any(URpcListener.class));
     }
 
     @Test
     public void negative_uLink_unRegisterMethod_exception() throws InterruptedException {
         //when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
-        when(mEULink.unregisterRpcListener(any(UUri.class),
+        when(mUpClient.unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(mFailedStatus);
 
         mService.onDestroy();
         // wait for unregister async tasks to complete
         Thread.sleep(100);
-        verify(mEULink, atLeastOnce()).unregisterRpcListener(any(UUri.class),
+        verify(mUpClient, atLeastOnce()).unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class));
     }
 
@@ -472,7 +455,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_executeUpdateNode() {
-        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okSts = buildStatus(UCode.OK, "OK");
         UPayload response = packToAny(okSts);
         when(mRpcHandler.processLDSUpdateNode(any(UMessage.class))).thenReturn(response);
 
@@ -527,7 +510,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_executeAddNodes() {
-        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okSts = buildStatus(UCode.OK, "OK");
         UPayload response = packToAny(okSts);
         when(mRpcHandler.processAddNodesLDS(any(UMessage.class))).thenReturn(response);
 
@@ -555,7 +538,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_executeDeleteNodes() {
-        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okSts = buildStatus(UCode.OK, "OK");
         UPayload response = packToAny(okSts);
         when(mRpcHandler.processDeleteNodes(any(UMessage.class))).thenReturn(response);
 
@@ -583,7 +566,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_executeUpdateProperty() {
-        UStatus okSts = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okSts = buildStatus(UCode.OK, "OK");
         UPayload response = packToAny(okSts);
         when(mRpcHandler.processLDSUpdateProperty(any(UMessage.class))).thenReturn(response);
 
@@ -677,13 +660,13 @@ public class UDiscoveryServicesTest extends TestBase {
     @Test
     public void shutDown() throws InterruptedException {
         //when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
-        UStatus ok = UStatus.newBuilder().setCode(UCode.OK).build();
-        when(mEULink.unregisterRpcListener(any(UUri.class),
+        UStatus ok = buildStatus(UCode.OK, "OK");
+        when(mUpClient.unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(ok);
-        when(mEULink.isConnected()).thenReturn(true);
-        when(mEULink.unregisterRpcListener(any(UUri.class),
+        when(mUpClient.isConnected()).thenReturn(true);
+        when(mUpClient.unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(ok);
-        UEntity entity = UEntity.newBuilder().setName("vcu.VIN.veh.ultifi.gm.com").build();
+        UEntity entity = UEntity.newBuilder().setName("vcu.VIN.veh.gm.com").build();
         UUri uri = UUri.newBuilder().setAuthority(TEST_AUTHORITY).setEntity(entity).build();
         LookupUriResponse uriResponse = LookupUriResponse.newBuilder().setUris(UUriBatch.newBuilder().addUris(uri).build()).build();
         UPayload authorityDetails = packToAny(uriResponse);
@@ -691,7 +674,7 @@ public class UDiscoveryServicesTest extends TestBase {
         mService.onDestroy();
         // wait for unregister async tasks to complete
         Thread.sleep(100);
-        verify(mEULink, atLeastOnce()).unregisterRpcListener(any(UUri.class),
+        verify(mUpClient, atLeastOnce()).unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class));
     }
 
@@ -701,7 +684,7 @@ public class UDiscoveryServicesTest extends TestBase {
         mService.setNetworkStatus(false);
         AtomicBoolean flag = new AtomicBoolean(false);
         NetworkStatusInterface consumer = flag::set;
-        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
+        NetworkCallback cb = new NetworkCallback(consumer);
 
         cb.onAvailable(null);
         assertTrue(flag.get());
@@ -715,15 +698,31 @@ public class UDiscoveryServicesTest extends TestBase {
         setLogLevel(Log.VERBOSE);
         mService.setNetworkStatus(false);
         AtomicBoolean flag = new AtomicBoolean(false);
-        NetworkStatusInterface consumer = status -> {
-            flag.set(status);
-        };
-        NwConnectionCallbacks cb = new NwConnectionCallbacks(consumer);
+        NetworkStatusInterface consumer = flag::set;
+        NetworkCallback cb = new NetworkCallback(consumer);
 
         cb.onAvailable(null);
         assertTrue(flag.get());
         cb.onLost(null);
         assertFalse(flag.get());
         cb.onCapabilitiesChanged(null, null);
+    }
+
+    @Test
+    public void positive_serviceListener() {
+        mService.onLifecycleChanged(mUpClient, true);
+        AtomicBoolean flag = new AtomicBoolean(false);
+        UPClient.ServiceLifecycleListener sl = (upClient, ready) -> flag.set(ready);
+        sl.onLifecycleChanged(mUpClient, true);
+        assertTrue(flag.get());
+    }
+
+    @Test
+    public void negative_serviceListener() {
+        mService.onLifecycleChanged(mUpClient, false);
+        AtomicBoolean flag = new AtomicBoolean(false);
+        UPClient.ServiceLifecycleListener sl = (upClient, ready) -> flag.set(ready);
+        sl.onLifecycleChanged(mUpClient, false);
+        assertFalse(flag.get());
     }
 }

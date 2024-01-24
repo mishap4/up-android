@@ -29,10 +29,10 @@ import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import org.eclipse.uprotocol.common.util.log.Formatter.join
 import org.eclipse.uprotocol.common.util.log.Key
 
-import org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.LOG_TAG
-import org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.join
+import org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.TAG
 
 
 @Database(
@@ -49,7 +49,7 @@ abstract class ObserverDatabase : RoomDatabase() {
         private var INSTANCE: ObserverDatabase? = null
 
         fun createDatabase(appContext: Context): ObserverDatabase {
-            Log.i(LOG_TAG, join(Key.EVENT, "createDatabase"))
+            Log.i(TAG, join(Key.EVENT, "createDatabase"))
 
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -68,6 +68,6 @@ abstract class ObserverDatabase : RoomDatabase() {
 }
 
 fun createDbExtension(context: Context): ObserverDatabase {
-    Log.i(LOG_TAG, join(Key.EVENT, "createDbExtension"))
+    Log.i(TAG, join(Key.EVENT, "createDbExtension"))
     return ObserverDatabase.createDatabase(context)
 }

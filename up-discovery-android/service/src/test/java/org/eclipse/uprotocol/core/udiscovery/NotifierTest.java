@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
 
 import android.util.Log;
 
-import org.eclipse.uprotocol.ULink;
+import org.eclipse.uprotocol.UPClient;
 import org.eclipse.uprotocol.core.udiscovery.v3.Notification;
 import org.eclipse.uprotocol.v1.UAuthority;
 import org.eclipse.uprotocol.v1.UEntity;
@@ -49,7 +49,7 @@ import java.util.Set;
 
 @RunWith(RobolectricTestRunner.class)
 public class NotifierTest extends TestBase {
-    private ULink mElicpseUlink;
+    private UPClient mUpClient;
     private ObserverManager mObserverManager;
     private Notifier mNotifier;
     private List<UUri> mUriPath;
@@ -66,8 +66,7 @@ public class NotifierTest extends TestBase {
         ShadowLog.stream = System.out;
         setLogLevel(Log.INFO);
         mObserverManager = mock(ObserverManager.class);
-//        mUltifiLink = mock(UltifiLink.class);
-        mNotifier = new Notifier(mObserverManager, mElicpseUlink);
+        mNotifier = new Notifier(mObserverManager, mUpClient);
         mObserverMap = buildObserverMap();
         mUriPath = getUriPath();
         mAddedUris = getAddedUris();

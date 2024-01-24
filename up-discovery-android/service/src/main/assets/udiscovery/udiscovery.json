@@ -1,11 +1,11 @@
 {
-  "uri": "ultifi:/core.udiscovery",
+  "uri": "core.udiscovery",
   "nodes": [
     {
-      "uri": "ultifi:/core.udiscovery/2",
+      "uri": "core.udiscovery/3",
       "nodes": [
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.LookupUri",
+          "uri": "core.udiscovery/3/rpc.LookupUri",
           "properties": {
             "id": {
               "uInteger": 1
@@ -14,7 +14,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.UpdateNode",
+          "uri": "core.udiscovery/3/rpc.UpdateNode",
           "properties": {
             "id": {
               "uInteger": 2
@@ -26,7 +26,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.FindNodes",
+          "uri": "core.udiscovery/3/rpc.FindNodes",
           "properties": {
             "id": {
               "uInteger": 3
@@ -35,7 +35,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.FindNodeProperties",
+          "uri": "core.udiscovery/3/rpc.FindNodeProperties",
           "properties": {
             "id": {
               "uInteger": 4
@@ -44,7 +44,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.DeleteNodes",
+          "uri": "core.udiscovery/3/rpc.DeleteNodes",
           "properties": {
             "id": {
               "uInteger": 5
@@ -56,7 +56,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.AddNodes",
+          "uri": "core.udiscovery/3/rpc.AddNodes",
           "properties": {
             "id": {
               "uInteger": 6
@@ -68,7 +68,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.UpdateProperty",
+          "uri": "core.udiscovery/3/rpc.UpdateProperty",
           "properties": {
             "id": {
               "uInteger": 7
@@ -80,7 +80,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.RegisterForNotifications",
+          "uri": "core.udiscovery/3/rpc.RegisterForNotifications",
           "properties": {
             "id": {
               "uInteger": 8
@@ -89,7 +89,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/rpc.UnregisterForNotifications",
+          "uri": "core.udiscovery/3/rpc.UnregisterForNotifications",
           "properties": {
             "id": {
               "uInteger": 9
@@ -98,7 +98,7 @@
           "type": "METHOD"
         },
         {
-          "uri": "ultifi:/core.udiscovery/2/nodes#Notification",
+          "uri": "core.udiscovery/3/nodes#Notification",
           "properties": {
             "id": {
               "uInteger": 0
@@ -112,13 +112,10 @@
           "uInteger": 1
         },
         "major_version": {
-          "uInteger": 2
+          "uInteger": 3
         },
         "minor_version": {
           "uInteger": 0
-        },
-        "permission_level": {
-          "uInteger": 5
         }
       },
       "type": "VERSION"

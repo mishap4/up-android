@@ -25,7 +25,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="ultifi.permission.ACCESS_UBUS" />
+    <uses-permission android:name="uprotocol.permission.ACCESS_UBUS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -36,7 +36,6 @@
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
@@ -58,14 +57,8 @@
                 android:name="uprotocol.entity.version"
                 android:value="3" />
             <meta-data
-                android:name="uprotocol.startup.trigger"
-                android:value="asap" />
-            <meta-data
                 android:name="uprotocol.startup.user"
                 android:value="system" />
-            <meta-data
-                android:name="uprotocol.entity.permissionLevel"
-                android:value="5" />
         </service>
     </application>
 

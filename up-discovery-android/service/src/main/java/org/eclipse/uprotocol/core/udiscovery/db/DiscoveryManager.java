@@ -24,11 +24,14 @@
 
 package org.eclipse.uprotocol.core.udiscovery.db;
 
+import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgumentPositive;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkNotNull;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkStringNotEmpty;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_ADD_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_DELETE_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_FIND_NODES;
@@ -36,16 +39,16 @@ import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_FIN
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_LOOKUP_URI;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_NODE;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.METHOD_UPDATE_PROPERTY;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_AUTHORITY;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_DATA;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_HASH;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_HIERARCHY;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_TTL;
-import static org.eclipse.uprotocol.core.udiscovery.db.DatabaseUtility.insert;
+import static org.eclipse.uprotocol.core.udiscovery.db.DatabaseLoader.insert;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.parseAuthority;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
-import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.quote;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.util.Log;
 import android.util.Pair;
@@ -61,7 +64,6 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
 
 import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.Notifier;
 import org.eclipse.uprotocol.core.udiscovery.interfaces.ChecksumInterface;
@@ -90,15 +92,15 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class DiscoveryManager {
-    private static final String LOG_TAG = Formatter.tag("core", DiscoveryManager.class.getSimpleName());
+    private static final String TAG = tag(SERVICE.getName());
     private static final String LOCALURI = "localUri";
     private static final String KEY = "key";
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+    private final Gson mGson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final ExpiryTable expiryTable = new ExpiryTable();
     private final Notifier mNotifier;
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
-    private org.eclipse.uprotocol.v1.UAuthority ldsAuthority = UAuthority.getDefaultInstance();
+    private UAuthority ldsAuthority = UAuthority.getDefaultInstance();
     private Node ldsTree = Node.getDefaultInstance();
     private PersistInterface persistIntf;
     private ChecksumInterface checksumIntf;
@@ -137,7 +139,7 @@ public class DiscoveryManager {
             ldsTree = Node.newBuilder().setUri(domainUri).setType(Node.Type.DOMAIN).addNodes(deviceNode).build();
             return true;
         } catch (UStatusException e) {
-            Log.e(LOG_TAG, join(Key.EVENT, "init", Key.MESSAGE, e.getMessage()));
+            Log.e(TAG, join(Key.EVENT, "init", Key.MESSAGE, e.getMessage()));
             return false;
         }
     }
@@ -155,16 +157,16 @@ public class DiscoveryManager {
     }
 
     /**
-     * @param uri - an Ultifi URI string
+     * @param uri - an UUri URI string
      * @return List<String> - a list of Uri strings
      * @fn lookupUri
-     * @brief This is used by any ultifi application or service to find service instances location,
+     * @brief This is used by any UUri application or service to find service instances location,
      * and its current version. What is returned is a list of Uri strings like the following:
-     * Example Application calls: lookupUri(“ultifi:///core.example”)
-     * Returns: [“ultifi://ultifi.gm.com/core.example/2.0”, “ultifi:core.example/1.0”]
+     * Example Application calls: lookupUri(“core.example”)
+     * Returns: [“core.example/2.0”, “core.example/1.0”]
      */
     public synchronized Pair<UUriBatch, UStatus> lookupUri(@NonNull UUri uri) {
-        UStatus sts;
+        UStatus status;
         final UUriBatch.Builder batch = UUriBatch.newBuilder();
         try {
             final String serviceName = uri.getEntity().getName();
@@ -172,27 +174,27 @@ public class DiscoveryManager {
             if (serviceName.equals(JSON_AUTHORITY)) {
                 final UUri authorityUri = UUri.newBuilder().setAuthority(ldsAuthority).build();
                 batch.addUris(authorityUri);
-                sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[lookupUri] Success").build();
-                return new Pair<>(batch.build(), sts);
+                status = buildStatus(UCode.OK, "[lookupUri] Success");
+                return new Pair<>(batch.build(), status);
             }
             final UEntity serviceEntity = UEntity.newBuilder().setName(serviceName).build();
             final String serviceUri = toLongUri(ldsAuthority, serviceEntity);
-            final Node serviceNode = DatabaseUtility.internalFindNode(ldsTree, serviceUri);
+            final Node serviceNode = DatabaseLoader.internalFindNode(ldsTree, serviceUri);
             checkNotNull(serviceNode, UCode.NOT_FOUND, "[lookupUri] could not find " + serviceUri);
             for (Node entity : serviceNode.getNodesList()) {
-                final UUri fullUri = LongUriSerializer.instance().deserialize(entity.getUri());
-                batch.addUris(fullUri);
+                final UUri longUri = LongUriSerializer.instance().deserialize(entity.getUri());
+                batch.addUris(longUri);
             }
-            sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[lookupUri] Success").build();
-            return new Pair<>(batch.build(), sts);
+            status = buildStatus(UCode.OK, "[lookupUri] Success");
+            return new Pair<>(batch.build(), status);
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_LOOKUP_URI, toStatus(e));
+            status = logStatus(TAG, METHOD_LOOKUP_URI, toStatus(e));
         }
-        return new Pair<>(batch.build(), sts);
+        return new Pair<>(batch.build(), status);
     }
 
     /**
-     * @param node - an Ultifi node in JSON format
+     * @param node - an node in JSON format
      * @param ttl  - Time To Live in seconds, ttl equal to -1 indicates live forever
      * @return google.rpc.Status
      * @fn updateNode
@@ -201,8 +203,8 @@ public class DiscoveryManager {
     public synchronized UStatus updateNode(@NonNull Node node, long ttl) {
         UStatus sts;
         try {
-            final Node insertNode = DatabaseUtility.verifyNode(node);
-            final List<Node.Builder> nodePath = DatabaseUtility.FindPathToNode(ldsTree.toBuilder(),
+            final Node insertNode = DatabaseLoader.verifyNode(node);
+            final List<Node.Builder> nodePath = DatabaseLoader.FindPathToNode(ldsTree.toBuilder(),
                     insertNode.getUri());
             checkArgumentPositive(nodePath.size(), UCode.NOT_FOUND,
                     "[updateNode] could not find " + insertNode.getUri());
@@ -210,15 +212,15 @@ public class DiscoveryManager {
                 ldsTree = insertNode;
             } else {
                 Node.Builder parentBld = nodePath.get(nodePath.size() - 2);
-                DatabaseUtility.commitNode(parentBld, insertNode);
+                DatabaseLoader.commitNode(parentBld, insertNode);
                 ldsTree = nodePath.get(0).build();
             }
             setExpirationTime(insertNode.getUri(), ttl);
-            final List<UUri> uriPath = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
+            final List<UUri> uriPath = DatabaseLoader.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
             mExecutor.execute(() -> mNotifier.notifyObserversWithParentUri(Notification.Operation.UPDATE, uriPath));
-            sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[UpdateNode] Success").build();
+            sts = buildStatus(UCode.OK, "[UpdateNode] Success");
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_UPDATE_NODE, toStatus(e));
+            sts = logStatus(TAG, METHOD_UPDATE_NODE, toStatus(e));
         }
         return sts;
     }
@@ -236,17 +238,17 @@ public class DiscoveryManager {
         try {
             checkStringNotEmpty(property, "[updateProperty] property is empty");
             final String longUri = toLongUri(uri);
-            final List<Node.Builder> nodePath = DatabaseUtility.FindPathToNode(ldsTree.toBuilder(),
+            final List<Node.Builder> nodePath = DatabaseLoader.FindPathToNode(ldsTree.toBuilder(),
                     longUri);
             checkArgumentPositive(nodePath.size(), UCode.NOT_FOUND, "[updateProperty] could not find " + longUri);
             final Node.Builder builder = nodePath.get(nodePath.size() - 1);
             builder.putProperties(property, value);
             ldsTree = nodePath.get(0).build();
-            final List<UUri> uriPath = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
+            final List<UUri> uriPath = DatabaseLoader.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
             mExecutor.execute(() -> mNotifier.notifyObserversWithParentUri(Notification.Operation.UPDATE, uriPath));
-            sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[updateProperty] Success").build();
+            sts = buildStatus(UCode.OK, "[updateProperty] Success");
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_UPDATE_PROPERTY, toStatus(e));
+            sts = logStatus(TAG, METHOD_UPDATE_PROPERTY, toStatus(e));
         }
         return sts;
     }
@@ -264,7 +266,7 @@ public class DiscoveryManager {
             final String insertionUri = toLongUri(parentUri);
             checkStringNotEmpty(insertionUri, "[addNodes] parentUri is empty");
             checkArgumentPositive(nodesList.size(), "[addNodes] nodesList is empty");
-            final List<Node.Builder> nodePath = DatabaseUtility.FindPathToNode(ldsTree.toBuilder(),
+            final List<Node.Builder> nodePath = DatabaseLoader.FindPathToNode(ldsTree.toBuilder(),
                     insertionUri);
             checkArgumentPositive(nodePath.size(), UCode.NOT_FOUND, "[addNodes] could not find " +
                     insertionUri);
@@ -275,21 +277,21 @@ public class DiscoveryManager {
             parentBld.addAllNodes(nodesList);
 
             // Verify nodes before adding
-            final Node insertNode = DatabaseUtility.verifyNode(parentBld.build());
+            final Node insertNode = DatabaseLoader.verifyNode(parentBld.build());
             if (nodePath.size() == 1) {
                 ldsTree = insertNode;
             } else {
                 parentBld = nodePath.get(nodePath.size() - 2);
-                final Node.Builder childBld = DatabaseUtility.commitNode(parentBld, insertNode);
+                final Node.Builder childBld = DatabaseLoader.commitNode(parentBld, insertNode);
                 nodePath.set(lastIdx, childBld);
                 ldsTree = nodePath.get(0).build();
             }
-            final List<UUri> uriPath = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
-            final List<UUri> uriList = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(nodesList));
+            final List<UUri> uriPath = DatabaseLoader.extractUriFromNodeOrBuilder(List.copyOf(nodePath));
+            final List<UUri> uriList = DatabaseLoader.extractUriFromNodeOrBuilder(List.copyOf(nodesList));
             mExecutor.execute(() -> mNotifier.notifyObserversAddNodes(uriPath, uriList));
-            sts = UStatus.newBuilder().setCode(UCode.OK).setMessage("[AddNodes] Success").build();
+            sts = buildStatus(UCode.OK, "[AddNodes] Success");
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_ADD_NODES, toStatus(e));
+            sts = logStatus(TAG, METHOD_ADD_NODES, toStatus(e));
         }
         return sts;
     }
@@ -308,7 +310,7 @@ public class DiscoveryManager {
             final Node.Builder root = ldsTree.toBuilder();
             for (UUri uri : uriList) {
                 String longUri = LongUriSerializer.instance().serialize(uri);
-                final List<Node.Builder> nodePath = DatabaseUtility.FindPathToNode(root, longUri);
+                final List<Node.Builder> nodePath = DatabaseLoader.FindPathToNode(root, longUri);
                 if (nodePath.isEmpty()) {
                     message.append(" could not find " + longUri);
                 } else if (nodePath.size() == 1) {
@@ -321,16 +323,16 @@ public class DiscoveryManager {
                 final Node.Builder builder = branch.get(branch.size() - 1);
                 final String uri = builder.getUri();
                 expiryTable.remove(uri);
-                DatabaseUtility.DeleteNodeFromPath(branch);
-                final List<UUri> uriPath = DatabaseUtility.extractUriFromNodeOrBuilder(List.copyOf(branch));
+                DatabaseLoader.DeleteNodeFromPath(branch);
+                final List<UUri> uriPath = DatabaseLoader.extractUriFromNodeOrBuilder(List.copyOf(branch));
                 mExecutor.execute(() -> mNotifier.notifyObserversWithParentUri(Notification.Operation.REMOVE, uriPath));
                 message.append(" deleted " + uri);
             }
             ldsTree = root.build();
             UCode code = sortedList.isEmpty() ? UCode.NOT_FOUND : UCode.OK;
-            sts = UStatus.newBuilder().setCode(code).setMessage(message.toString()).build();
+            sts = buildStatus(code, message.toString());
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_DELETE_NODES, toStatus(e));
+            sts = logStatus(TAG, METHOD_DELETE_NODES, toStatus(e));
         }
         return sts;
     }
@@ -347,14 +349,14 @@ public class DiscoveryManager {
         try {
             final String localUri = toLongUri(uri);
             checkStringNotEmpty(localUri, "[findNode] uri is empty");
-            Log.i(LOG_TAG, join(Key.EVENT, METHOD_FIND_NODES, LOCALURI, quote(localUri)));
-            final Node node = DatabaseUtility.internalFindNode(ldsTree, localUri);
+            Log.i(TAG, join(Key.EVENT, METHOD_FIND_NODES, LOCALURI, quote(localUri)));
+            final Node node = DatabaseLoader.internalFindNode(ldsTree, localUri);
             checkNotNull(node, UCode.NOT_FOUND, "[findNode] could not find " + localUri + " in uOTA");
             sts = sts.toBuilder().setCode(UCode.OK).setMessage("[findNode] Success").build();
-            final Node nodeToReturn = (depth < 0) ? node : DatabaseUtility.copy(node, depth);
+            final Node nodeToReturn = (depth < 0) ? node : DatabaseLoader.copy(node, depth);
             return new Pair<>(nodeToReturn, sts);
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_FIND_NODES, toStatus(e));
+            sts = logStatus(TAG, METHOD_FIND_NODES, toStatus(e));
         }
         return new Pair<>(null, sts);
     }
@@ -376,14 +378,14 @@ public class DiscoveryManager {
         try {
             checkArgumentPositive(nameList.size(), "[findNodeProperties] nameList is empty");
             final String longUri = toLongUri(uri);
-            final Node node = DatabaseUtility.internalFindNode(ldsTree, longUri);
+            final Node node = DatabaseLoader.internalFindNode(ldsTree, longUri);
             checkNotNull(node, UCode.UNAVAILABLE, "[findNodeProperties] could not find " + longUri);
             final Map<String, PropertyValue> nodeProperties = node.getPropertiesMap();
             Map<String, PropertyValue> propMap = new HashMap<>();
             for (String name : nameList) {
                 final PropertyValue propValue = nodeProperties.get(name);
                 if (propValue == null) {
-                    Log.w(LOG_TAG, join(Key.REQUEST, METHOD_FIND_NODE_PROPERTIES, Key.MESSAGE,
+                    Log.w(TAG, join(Key.REQUEST, METHOD_FIND_NODE_PROPERTIES, Key.MESSAGE,
                             "could not find property", Key.NAME, quote(name)));
                 } else {
                     propMap.put(name, propValue);
@@ -394,10 +396,10 @@ public class DiscoveryManager {
             if (propMap.size() < nameList.size()) {
                 msg += " for limited properties";
             }
-            sts = UStatus.newBuilder().setCode(UCode.OK).setMessage(msg).build();
+            sts = buildStatus(UCode.OK, msg);
             return new Pair<>(propMap, sts);
         } catch (UStatusException e) {
-            sts = errorStatus(LOG_TAG, METHOD_FIND_NODE_PROPERTIES, toStatus(e));
+            sts = logStatus(TAG, METHOD_FIND_NODE_PROPERTIES, toStatus(e));
         }
         return new Pair<>(new HashMap<>(), sts);
     }
@@ -421,10 +423,10 @@ public class DiscoveryManager {
             root.add(JSON_HASH, hash);
             root.add(JSON_TTL, expiryTable.export());
 
-            return gson.toJson(root);
+            return mGson.toJson(root);
 
         } catch (InvalidProtocolBufferException e) {
-            errorStatus(LOG_TAG, "export", toStatus(e));
+            logStatus(TAG, "export", toStatus(e));
         }
         return "";
     }
@@ -457,9 +459,9 @@ public class DiscoveryManager {
             return true;
 
         } catch (InvalidProtocolBufferException e) {
-            Log.e(LOG_TAG, join("load", e.getMessage()));
+            Log.e(TAG, join("load", e.getMessage()));
         } catch (Exception e) {
-            Log.e(LOG_TAG, join("load", e.getMessage()));
+            Log.e(TAG, join("load", e.getMessage()));
         }
         return false;
     }
@@ -483,7 +485,7 @@ public class DiscoveryManager {
 
         final String jString = JsonFormat.printer().print(node);
         final JsonObject jObject = (JsonObject) JsonParser.parseString(jString);
-        final String payload = gson.toJson(jObject);
+        final String payload = mGson.toJson(jObject);
         String signature = "";
         if (checksumIntf != null) {
             signature = checksumIntf.generateHash(payload);
@@ -508,11 +510,11 @@ public class DiscoveryManager {
         checkStringNotEmpty(key, "[readNode] key is empty");
 
         final JsonObject jObject = data.getAsJsonObject(key);
-        final String payload = gson.toJson(jObject);
+        final String payload = mGson.toJson(jObject);
         final String signature = hash.get(key).getAsString();
         final boolean bOk = (checksumIntf == null) ? true : checksumIntf.verifyHash(payload, signature);
         if (!bOk) {
-            Log.w(LOG_TAG, join("readNode", Key.MESSAGE, "hash check failed", KEY, quote(key)));
+            Log.w(TAG, join("readNode", Key.MESSAGE, "hash check failed", KEY, quote(key)));
             return null;
         }
         final Node.Builder bld = Node.newBuilder();
@@ -521,7 +523,7 @@ public class DiscoveryManager {
     }
 
     /**
-     * @param uri    - an Ultifi URI string
+     * @param uri    - an URI string
      * @param millis - number of milliseconds from the current time upon which
      *               the node is set to expire
      * @fn setExpirationTime
@@ -540,7 +542,7 @@ public class DiscoveryManager {
     }
 
     /**
-     * @param uri - an Ultifi URI string
+     * @param uri - an URI string
      * @return Runnable
      * @fn onExpired
      * @brief Creates a task to delete the node associated with the given URI
@@ -549,12 +551,12 @@ public class DiscoveryManager {
         return () -> {
             expiryTable.remove(uri);
             try {
-                ldsTree = DatabaseUtility.internalDeleteNode(ldsTree, uri);
+                ldsTree = DatabaseLoader.internalDeleteNode(ldsTree, uri);
                 if (null != persistIntf) {
                     persistIntf.persist(export());
                 }
             } catch (UStatusException e) {
-                errorStatus(LOG_TAG, "onExpired", toStatus(e));
+                logStatus(TAG, "onExpired", toStatus(e));
             }
         };
     }
@@ -583,9 +585,9 @@ public class DiscoveryManager {
         }
         for (String uri : expiredList) {
             try {
-                ldsTree = DatabaseUtility.internalDeleteNode(ldsTree, uri);
+                ldsTree = DatabaseLoader.internalDeleteNode(ldsTree, uri);
             } catch (UStatusException e) {
-                errorStatus(LOG_TAG, "loadTtl", toStatus(e));
+                logStatus(TAG, "loadTtl", toStatus(e));
             }
         }
     }

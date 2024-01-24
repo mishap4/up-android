@@ -30,9 +30,11 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgumentPositi
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkNotNull;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkStringNotEmpty;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.hasCharAt;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.parseAuthority;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.sanitizeUri;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.util.Log;
 import android.util.Pair;
@@ -40,7 +42,6 @@ import android.util.Pair;
 import androidx.annotation.NonNull;
 
 import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.core.udiscovery.v3.Node;
 import org.eclipse.uprotocol.core.udiscovery.v3.NodeOrBuilder;
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
@@ -56,11 +57,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class DatabaseUtility {
-    private static final String LOG_TAG = Formatter.tag("core", DatabaseUtility.class.getSimpleName());
+public class DatabaseLoader {
+    private static final String TAG = tag(SERVICE.getName());
 
-    private DatabaseUtility() {
-        throw new IllegalStateException("DatabaseUtility class");
+    private DatabaseLoader() {
+        throw new IllegalStateException("DatabaseLoader class");
     }
 
     /**
@@ -305,7 +306,7 @@ public class DatabaseUtility {
             childList.remove(childList.size() - 1);
             return parentList.equals(childList);
         } catch (UStatusException e) {
-            Log.e(LOG_TAG, join("verifyParentChild", e.getMessage()));
+            Log.e(TAG, join("verifyParentChild", e.getMessage()));
         }
         return false;
     }

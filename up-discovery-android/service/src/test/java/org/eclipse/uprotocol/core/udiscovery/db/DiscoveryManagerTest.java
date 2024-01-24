@@ -24,6 +24,7 @@
 
 package org.eclipse.uprotocol.core.udiscovery.db;
 
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.JSON_AUTHORITY;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.JSON_PROTOBUF_EXCEPTION;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
@@ -71,7 +72,7 @@ import java.util.Map;
 @RunWith(RobolectricTestRunner.class)
 public class DiscoveryManagerTest extends TestBase implements PersistInterface {
 
-    public static final String LOG_TAG = Formatter.tag("core", DiscoveryManagerTest.class.getSimpleName());
+    public static final String TAG = tag(SERVICE.getName());
     private static final String UNKNOWN_PROPERTY_NAME = "unknown_property";
     private final IntegrityCheck mIntegrity = spy(IntegrityCheck.class);
     public Notifier mNotifier = mock(Notifier.class);

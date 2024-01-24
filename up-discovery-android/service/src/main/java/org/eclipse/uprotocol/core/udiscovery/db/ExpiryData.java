@@ -29,12 +29,12 @@ import java.util.concurrent.ScheduledFuture;
 public class ExpiryData {
     public final String uri;
     public final String exp;
-    public final ScheduledFuture<?> fut;
+    public final ScheduledFuture<?> future;
 
-    public ExpiryData(String uri, String exp, ScheduledFuture<?> fut) {
+    public ExpiryData(String uri, String exp, ScheduledFuture<?> future) {
         this.uri = uri;
         this.exp = exp;
-        this.fut = fut;
+        this.future = future;
     }
 }
 

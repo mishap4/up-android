@@ -27,8 +27,10 @@ package org.eclipse.uprotocol.core.udiscovery;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkState;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkStringNotEmpty;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_AUTHORITY;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_DB_FILENAME;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.content.Context;
 import android.util.Log;
@@ -36,77 +38,76 @@ import android.util.Log;
 import androidx.annotation.VisibleForTesting;
 
 import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
 
-public class LoadUtility {
-    private static final String LOG_TAG = Formatter.tag("core", LoadUtility.class.getSimpleName());
+public class DatabaseLoader {
+    private static final String TAG = tag(SERVICE.getName());
 
-    protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
-    protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
-    public final AssetUtility mAssetUtil;
+    protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
+    public final AssetManager mAssetManager;
     public final DiscoveryManager mDiscoveryMgr;
     private final Context mContext;
     @VisibleForTesting
-    private initLDSCode mCode;
+    private InitLDSCode mCode;
 
-    public LoadUtility(Context context, AssetUtility au, DiscoveryManager mgr) {
+    public DatabaseLoader(Context context, AssetManager au, DiscoveryManager mgr) {
         mContext = context;
-        mAssetUtil = au;
+        mAssetManager = au;
         mDiscoveryMgr = mgr;
         mCode = null;
     }
 
     @VisibleForTesting
-    LoadUtility(Context context, AssetUtility au, DiscoveryManager mgr, initLDSCode code) {
+    DatabaseLoader(Context context, AssetManager au, DiscoveryManager mgr, InitLDSCode code) {
         mContext = context;
-        mAssetUtil = au;
+        mAssetManager = au;
         mDiscoveryMgr = mgr;
         mCode = code;
     }
 
-    public initLDSCode initializeLDS() throws UStatusException {
-        initLDSCode code = (null != mCode) ? mCode : initLDSCode.FAILURE;
+    public InitLDSCode initializeLDS() throws UStatusException {
+        InitLDSCode code = (null != mCode) ? mCode : InitLDSCode.FAILURE;
         load(LDS_DB_FILENAME);
-        code = (null != mCode) ? mCode : initLDSCode.SUCCESS;
-        if (code == initLDSCode.RECOVERY) {
-            Log.w(LOG_TAG, join(Key.MESSAGE, "initializing empty LDS database"));
+        code = (null != mCode) ? mCode : InitLDSCode.SUCCESS;
+        if (code == InitLDSCode.RECOVERY) {
+            Log.w(TAG, join(Key.MESSAGE, "initializing empty LDS database"));
             mDiscoveryMgr.init(LDS_AUTHORITY);
-            if (!saveDB(LDS_DB_FILENAME)) {
-                code = initLDSCode.FAILURE;
+            if (!save(LDS_DB_FILENAME)) {
+                code = InitLDSCode.FAILURE;
             }
         }
-        if (code == initLDSCode.FAILURE) {
-            Log.e(LOG_TAG, join(Key.MESSAGE, "DB initialization failed"));
+        if (code == InitLDSCode.FAILURE) {
+            Log.e(TAG, join(Key.MESSAGE, "DB initialization failed"));
         } else {
-            Log.d(LOG_TAG, join(Key.MESSAGE, "DB initialization successful"));
+            Log.d(TAG, join(Key.MESSAGE, "DB initialization successful"));
             if (VERBOSE) {
-                Log.v(LOG_TAG, join(Key.MESSAGE, mDiscoveryMgr.export()));
+                Log.v(TAG, join(Key.MESSAGE, mDiscoveryMgr.export()));
             }
         }
         return code;
     }
 
-    private boolean saveDB(String filename) {
-        checkStringNotEmpty(filename, "[saveDB] filename empty string");
+    private boolean save(String filename) {
+        checkStringNotEmpty(filename, "[save] filename empty string");
         final String db = mDiscoveryMgr.export();
-        return mAssetUtil.writeFileToInternalStorage(mContext, filename, db);
+        return mAssetManager.writeFileToInternalStorage(mContext, filename, db);
     }
 
     private void load(String filename) {
         checkStringNotEmpty(filename, "[load] filename empty string");
 
-        final String json = mAssetUtil.readFileFromInternalStorage(mContext, filename);
+        final String json = mAssetManager.readFileFromInternalStorage(mContext, filename);
         checkStringNotEmpty(json, "[load] database is empty");
 
         final boolean bLoadResult = mDiscoveryMgr.load(json);
         checkState(bLoadResult, "[load] failed to load database");
 
-        Log.d(LOG_TAG, join(Key.EVENT, "load", Key.STATUS, "successful"));
+        Log.d(TAG, join(Key.EVENT, "load", Key.STATUS, "successful"));
     }
 
-    enum initLDSCode {
+    enum InitLDSCode {
         FAILURE,
         RECOVERY,
         SUCCESS

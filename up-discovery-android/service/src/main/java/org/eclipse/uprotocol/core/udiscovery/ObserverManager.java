@@ -27,11 +27,13 @@ package org.eclipse.uprotocol.core.udiscovery;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.OBSERVER_URI;
 import static org.eclipse.uprotocol.core.udiscovery.RPCHandler.NODEURI;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
-import static org.eclipse.uprotocol.core.udiscovery.internal.log.Formatter.quote;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.content.Context;
 import android.util.Log;
@@ -41,7 +43,6 @@ import androidx.annotation.VisibleForTesting;
 
 import com.google.common.collect.Sets;
 
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.db.Observer;
 import org.eclipse.uprotocol.core.udiscovery.db.ObserverDao;
@@ -59,9 +60,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ObserverManager {
-    protected static final String LOG_TAG = Formatter.tag("core", ObserverManager.class.getSimpleName());
-    protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
-    protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
+    protected static final String TAG = tag(SERVICE.getName());
+    protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
     @VisibleForTesting
     final ConcurrentHashMap<UUri, Set<UUri>> mObservers = new ConcurrentHashMap<>();
     private final Object mDBLock = new Object();
@@ -145,7 +146,7 @@ public class ObserverManager {
             }
             wrapper.added = observers.add(observer);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.EVENT, "addObserverToMap",
+                Log.d(TAG, join(Key.EVENT, "addObserverToMap",
                         NODEURI, toLongUri(nodeUri),
                         OBSERVER_URI, toLongUri(observer)));
             }
@@ -167,11 +168,11 @@ public class ObserverManager {
                 long retCode = observerDao().addObserver(
                         new Observer(toLongUri(nodeUri), toLongUri(observerUri)));
                 if (retCode < 0) {
-                    Log.e(LOG_TAG, join(Key.MESSAGE, "Failed to add to DB with code", Key.CODE, retCode));
+                    Log.e(TAG, join(Key.MESSAGE, "Failed to add to DB with code", Key.CODE, retCode));
                 }
                 return retCode >= 0;
             } catch (Exception e) {
-                errorStatus(LOG_TAG, "addObserverToDb", toStatus(e), Key.MESSAGE, "Failed to add to DB");
+                logStatus(TAG, "addObserverToDb", toStatus(e), Key.MESSAGE, "Failed to add to DB");
                 return false;
             }
         }
@@ -238,7 +239,7 @@ public class ObserverManager {
                 wrapper.removed = observers.remove(observer);
             }
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.EVENT, "removeObserverFromMap",
+                Log.d(TAG, join(Key.EVENT, "removeObserverFromMap",
                         NODEURI, toLongUri(nodeUri),
                         OBSERVER_URI, toLongUri(observer)));
             }
@@ -259,11 +260,11 @@ public class ObserverManager {
             try {
                 int retCode = observerDao().removeObserver(toLongUri(nodeUri), toLongUri(observerUri));
                 if (retCode < 0) {
-                    Log.e(LOG_TAG, join(Key.EVENT, "Failed to remove from DB with code", Key.CODE, retCode));
+                    Log.e(TAG, join(Key.EVENT, "Failed to remove from DB with code", Key.CODE, retCode));
                 }
                 return retCode >= 0;
             } catch (Exception e) {
-                errorStatus(LOG_TAG, "removeObserverFromDb", toStatus(e), Key.MESSAGE, "Failed to remove from DB");
+                logStatus(TAG, "removeObserverFromDb", toStatus(e), Key.MESSAGE, "Failed to remove from DB");
                 return false;
             }
         }
@@ -281,9 +282,9 @@ public class ObserverManager {
             return Collections.emptySet();
         }
         if (DEBUG) {
-            Log.d(LOG_TAG, join(Key.MESSAGE, "List of observer(s) for node", NODEURI, nodeUri.toString()));
+            Log.d(TAG, join(Key.MESSAGE, "List of observer(s) for node", NODEURI, nodeUri.toString()));
             for (UUri observerUri : observers) {
-                Log.d(LOG_TAG, join(OBSERVER_URI, observerUri.toString()));
+                Log.d(TAG, join(OBSERVER_URI, observerUri.toString()));
             }
         }
         return observers;
@@ -295,12 +296,12 @@ public class ObserverManager {
         }
         final ConcurrentHashMap<UUri, Set<UUri>> observersMap = mObservers;
         if (VERBOSE) {
-            Log.v(LOG_TAG, join(Key.EVENT, "getObserverMap"));
+            Log.v(TAG, join(Key.EVENT, "getObserverMap"));
             for (Map.Entry<UUri, Set<UUri>> entry : observersMap.entrySet()) {
                 for (UUri observer : entry.getValue()) {
                     String key = toLongUri(entry.getKey());
                     String val = toLongUri(observer);
-                    Log.v(LOG_TAG, join(NODEURI, quote(key), OBSERVER_URI, quote(val)));
+                    Log.v(TAG, join(NODEURI, quote(key), OBSERVER_URI, quote(val)));
                 }
             }
         }

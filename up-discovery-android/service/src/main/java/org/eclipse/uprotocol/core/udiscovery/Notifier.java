@@ -25,14 +25,15 @@
 package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 
-import org.eclipse.uprotocol.ULink;
-import org.eclipse.uprotocol.common.util.log.Formatter;
+import org.eclipse.uprotocol.UPClient;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.v3.Notification;
 import org.eclipse.uprotocol.core.udiscovery.v3.Notification.Operation;
@@ -48,15 +49,15 @@ public class Notifier {
     public static final String PARENT_URI = "parentUri";
     public static final String OBSERVER_URI = "observerUri";
     public static final String NOTIFICATION = "notification";
-    private static final String LOG_TAG = Formatter.tag("core", Notifier.class.getSimpleName());
-    protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
-    protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
+    private static final String TAG = tag(SERVICE.getName());
+    protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
     private final ObserverManager mObserverManager;
-    private final ULink mEUlink;
+    private final UPClient mUpClient;
 
-    public Notifier(ObserverManager observerManager, ULink ultifiLink) {
+    public Notifier(ObserverManager observerManager, UPClient upClient) {
         mObserverManager = observerManager;
-        mEUlink = ultifiLink;
+        mUpClient = upClient;
     }
 
     /**
@@ -68,11 +69,11 @@ public class Notifier {
      */
     public void notifyObserversWithParentUri(Operation operation, @NonNull List<UUri> nodePath) {
         if (operation.equals(Operation.INVALID) || operation.equals(Operation.ADD)) {
-            Log.e(LOG_TAG, join(Key.MESSAGE, "findObservers invalid operation " + operation));
+            Log.e(TAG, join(Key.MESSAGE, "findObservers invalid operation " + operation));
             return;
         }
         if (nodePath.size() < 2) {
-            Log.e(LOG_TAG, join(Key.MESSAGE, "findObservers nodePath invalid size"));
+            Log.e(TAG, join(Key.MESSAGE, "findObservers nodePath invalid size"));
             return;
         }
         final List<UUri> observerList = getListOfObservers(nodePath);
@@ -80,7 +81,7 @@ public class Notifier {
         final UUri parent = nodePath.get(nodePath.size() - 2);
         observerList.forEach((observer) -> {
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.MESSAGE, "notify",
+                Log.d(TAG, join(Key.MESSAGE, "notify",
                         Key.URI, toLongUri(child),
                         PARENT_URI, toLongUri(parent),
                         OBSERVER_URI, toLongUri(observer)));
@@ -91,7 +92,7 @@ public class Notifier {
 
     public void notifyObserversAddNodes(List<UUri> nodePath, List<UUri> addedNodes) {
         if (nodePath.isEmpty()) {
-            Log.w(LOG_TAG, join(Key.MESSAGE, "notifyObserversAddNodes nodePath is Empty"));
+            Log.w(TAG, join(Key.MESSAGE, "notifyObserversAddNodes nodePath is Empty"));
             return;
         }
         final List<UUri> observerList = getListOfObservers(nodePath);
@@ -99,7 +100,7 @@ public class Notifier {
         for (UUri observer : observerList) {
             for (UUri child : addedNodes) {
                 if (DEBUG) {
-                    Log.d(LOG_TAG, join(Key.MESSAGE, "notify",
+                    Log.d(TAG, join(Key.MESSAGE, "notify",
                             Key.URI, toLongUri(child),
                             PARENT_URI, toLongUri(parent),
                             OBSERVER_URI, toLongUri(observer)));
@@ -135,13 +136,13 @@ public class Notifier {
 
     /**
      * sendNotification - Notify the observer of the change to a node by sending
-     * Notification on topic: ultifi:/core.udiscovery/2/nodes#Notification
+     * Notification on topic: core.udiscovery/3/nodes#Notification
      *
      * @param observer     - observer to whom the notification should be sent to
      * @param notification - Notification containing the details of the node and operation
      */
     private void sendNotification(@NonNull UUri observer, @NonNull Notification notification) {
-        Log.d(LOG_TAG, join(OBSERVER_URI, observer.toString(), NOTIFICATION,
+        Log.d(TAG, join(OBSERVER_URI, observer.toString(), NOTIFICATION,
                 notification));
         // TODO
 //        final Any payload = Any.pack(notification);

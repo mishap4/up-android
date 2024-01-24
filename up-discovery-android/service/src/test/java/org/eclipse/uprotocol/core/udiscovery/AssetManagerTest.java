@@ -52,11 +52,11 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 @RunWith(RobolectricTestRunner.class)
-public class AssetUtilityTest extends TestBase {
+public class AssetManagerTest extends TestBase {
 
     public Context mContext;
 
-    AssetUtility mAssetUtility;
+    AssetManager mAssetManager;
 
     @Mock
     Context mockContext;
@@ -68,7 +68,7 @@ public class AssetUtilityTest extends TestBase {
     public void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
         ShadowLog.stream = System.out;
-        mAssetUtility = new AssetUtility();
+        mAssetManager = new AssetManager();
         mContext = InstrumentationRegistry.getInstrumentation().getContext();
         mFile = File.createTempFile("lds", ".json");
         mWriter = Mockito.spy(new FileWriter(mFile));
@@ -81,16 +81,16 @@ public class AssetUtilityTest extends TestBase {
     @Test
     public void test_readFileFromInternalStorage() {
         when(mockContext.getFilesDir()).thenReturn(new File("/tmp"));
-        boolean actual = mAssetUtility.writeFileToInternalStorage(mockContext, LDS_DB_FILENAME,
+        boolean actual = mAssetManager.writeFileToInternalStorage(mockContext, LDS_DB_FILENAME,
                 REGISTRY_JSON);
         assertTrue(actual);
-        String actualReadData = mAssetUtility.readFileFromInternalStorage(mockContext, LDS_DB_FILENAME);
+        String actualReadData = mAssetManager.readFileFromInternalStorage(mockContext, LDS_DB_FILENAME);
         assertEquals(REGISTRY_JSON.replaceAll("\\n", ""), actualReadData);
     }
 
     @Test
     public void test_readFileFromInternalStorage_FileNotFound() {
-        String actual = mAssetUtility.readFileFromInternalStorage(mContext, LDS_DB_FILENAME);
+        String actual = mAssetManager.readFileFromInternalStorage(mContext, LDS_DB_FILENAME);
         assertEquals("", actual);
     }
 
@@ -98,10 +98,10 @@ public class AssetUtilityTest extends TestBase {
     public void test_readFileFromInternalStorage_IOException() {
         String data = null;
         when(mockContext.getFilesDir()).thenReturn(new File("/tmp"));
-        mAssetUtility = new AssetUtility(mBufferedReader, mWriter, mFile);
+        mAssetManager = new AssetManager(mBufferedReader, mWriter, mFile);
         try {
             doThrow(new IOException()).when(mBufferedReader).readLine();
-            data = mAssetUtility.readFileFromInternalStorage(mockContext, LDS_DB_FILENAME);
+            data = mAssetManager.readFileFromInternalStorage(mockContext, LDS_DB_FILENAME);
         } catch (Exception ignored) {
         }
         assert data != null;
@@ -112,10 +112,10 @@ public class AssetUtilityTest extends TestBase {
     public void test_writeFileToInternalStorage_IOException() {
         boolean actual = false;
         when(mockContext.getFilesDir()).thenReturn(new File("/tmp"));
-        mAssetUtility = new AssetUtility(mBufferedReader, mWriter, mFile);
+        mAssetManager = new AssetManager(mBufferedReader, mWriter, mFile);
         try {
             doThrow(new IOException()).when(mWriter).close();
-            actual = mAssetUtility.writeFileToInternalStorage(mockContext, LDS_DB_FILENAME,
+            actual = mAssetManager.writeFileToInternalStorage(mockContext, LDS_DB_FILENAME,
                     REGISTRY_JSON);
         } catch (Exception ignored) {
         }

@@ -24,6 +24,7 @@
 
 package org.eclipse.uprotocol.core.udiscovery;
 
+import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_DB_FILENAME;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
@@ -92,7 +93,7 @@ public class RPCHandlerTest extends TestBase {
     @Mock
     public Notifier mNotifier;
     @Mock
-    public AssetUtility mAssetUtil;
+    public AssetManager mAssetManager;
     @Rule
     public MockitoRule rule = MockitoJUnit.rule();
     public RPCHandler mRPCHandler;
@@ -114,7 +115,7 @@ public class RPCHandlerTest extends TestBase {
         // initialize Discovery Manager
         initializeDb();
         mObserverManager = mock(ObserverManager.class);
-        mRPCHandler = new RPCHandler(mContext, mAssetUtil, mDiscoveryManager,
+        mRPCHandler = new RPCHandler(mContext, mAssetManager, mDiscoveryManager,
                 mObserverManager);
     }
 
@@ -135,7 +136,7 @@ public class RPCHandlerTest extends TestBase {
     public void positive_persist() {
         String payload = mDiscoveryManager.export();
         mRPCHandler.persist(payload);
-        verify(mAssetUtil).writeFileToInternalStorage(mContext, LDS_DB_FILENAME, payload);
+        verify(mAssetManager).writeFileToInternalStorage(mContext, LDS_DB_FILENAME, payload);
     }
 
     @Test
@@ -274,7 +275,7 @@ public class RPCHandlerTest extends TestBase {
         FindNodePropertiesResponse response = unpack(uPayload, FindNodePropertiesResponse.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, response.getStatus().getCode());
     }
 
@@ -291,7 +292,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -309,7 +310,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -322,7 +323,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, status.getCode());
     }
 
@@ -344,7 +345,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).updateProperty(TEST_PROPERTY1, propertyValue, uri);
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, sts.getCode());
     }
 
@@ -367,7 +368,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).updateProperty(TEST_PROPERTY1, propertyValue, uri);
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, sts.getCode());
     }
 
@@ -381,7 +382,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager, never()).updateProperty(anyString(), any(), any());
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, status.getCode());
     }
 
@@ -403,7 +404,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).addNodes(any(), any());
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -426,7 +427,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).addNodes(any(), any());
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -439,7 +440,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, status.getCode());
     }
 
@@ -457,7 +458,7 @@ public class RPCHandlerTest extends TestBase {
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
         verify(mDiscoveryManager).deleteNodes(List.of(uri));
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -476,7 +477,7 @@ public class RPCHandlerTest extends TestBase {
 
         verify(mDiscoveryManager).deleteNodes(List.of(uri));
 
-        verify(mAssetUtil).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
+        verify(mAssetManager).writeFileToInternalStorage(eq(mContext), eq(LDS_DB_FILENAME), anyString());
         assertEquals(UCode.OK, status.getCode());
     }
 
@@ -489,7 +490,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, status.getCode());
     }
 
@@ -505,7 +506,7 @@ public class RPCHandlerTest extends TestBase {
                 .build();
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
 
-        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.registerObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
         UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
@@ -529,7 +530,7 @@ public class RPCHandlerTest extends TestBase {
                 .build();
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
 
-        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.registerObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
         UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
@@ -553,7 +554,7 @@ public class RPCHandlerTest extends TestBase {
                 .build();
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
 
-        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.unregisterObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
         UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
@@ -576,7 +577,7 @@ public class RPCHandlerTest extends TestBase {
                 .addUris(toLongUri(nodeUri))
                 .build();
         UMessage uMsg = UMessage.newBuilder().setPayload(packToAny(request)).build();
-        UStatus okStatus = UStatus.newBuilder().setCode(UCode.OK).build();
+        UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.unregisterObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
         UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
@@ -661,7 +662,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        verifyNoInteractions(mAssetUtil);
+        verifyNoInteractions(mAssetManager);
         assertEquals(UCode.INVALID_ARGUMENT, status.getCode());
     }
 }

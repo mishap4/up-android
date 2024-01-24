@@ -41,13 +41,8 @@ public class Constants {
 
     public static final String LDS_DEVICE_NAME = "device_name";
     public static final String LDS_DOMAIN_NAME = "domain_name";
-
-    public static final String UDISCOVERY = "udiscovery";
-    public static final String UDISCOVERY_JSON = "udiscovery.json";
     public static final UAuthority LDS_AUTHORITY = UAuthority.newBuilder().setName(
             String.join(".", LDS_DEVICE_NAME, LDS_DOMAIN_NAME)).build();
-
-    public static final String PERMISSION_LEVEL = "permission_level";
 
     public static final String UNEXPECTED_PAYLOAD = "Unexpected payload";
 

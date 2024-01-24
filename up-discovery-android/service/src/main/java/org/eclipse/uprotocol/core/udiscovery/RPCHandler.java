@@ -28,12 +28,14 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.checkStringNotEmpty
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.OBSERVER_URI;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.PARENT_URI;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.errorStatus;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.deserializeUriList;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
 
@@ -46,7 +48,6 @@ import androidx.annotation.NonNull;
 import com.google.protobuf.ProtocolStringList;
 
 import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.common.util.log.Formatter;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.common.Constants;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
@@ -77,25 +78,25 @@ import java.util.Map;
 @SuppressWarnings({"java:S1200", "java:S3008"})
 public class RPCHandler implements PersistInterface {
 
-    protected static final String LOG_TAG = Formatter.tag("core", RPCHandler.class.getSimpleName());
+    protected static final String TAG = tag(SERVICE.getName());
     protected static final String NODEURI = "nodeUri";
     protected static final String DEPTH = "depth";
     protected static final String NODE = "node";
     protected static final String NODELIST = "nodeList";
     protected static final String URILIST = "uriList";
-    protected static boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG);
-    protected static boolean VERBOSE = Log.isLoggable(LOG_TAG, Log.VERBOSE);
+    protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
     final DiscoveryManager mDiscoveryManager;
     private final Context mContext;
-    private final AssetUtility mAssetUtil;
+    private final AssetManager mAssetManager;
 
     private final ObserverManager mObserverManager;
 
-    public RPCHandler(Context context, AssetUtility util, DiscoveryManager discoveryManager,
+    public RPCHandler(Context context, AssetManager assetManager, DiscoveryManager discoveryManager,
                       ObserverManager observerManager) {
         mContext = context;
         mDiscoveryManager = discoveryManager;
-        mAssetUtil = util;
+        mAssetManager = assetManager;
         mDiscoveryManager.setPersistInterface(this);
         mDiscoveryManager.setChecksumInterface(new IntegrityCheck());
         mObserverManager = observerManager;
@@ -107,7 +108,7 @@ public class RPCHandler implements PersistInterface {
 
     @Override
     public void persist(String data) {
-        mAssetUtil.writeFileToInternalStorage(mContext, Constants.LDS_DB_FILENAME, data);
+        mAssetManager.writeFileToInternalStorage(mContext, Constants.LDS_DB_FILENAME, data);
     }
 
     public UPayload processLookupUriFromLDS(@NonNull UMessage uMsg) {
@@ -117,17 +118,17 @@ public class RPCHandler implements PersistInterface {
             final UUri uri = unpack(payload, UUri.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "LookupUri", Key.URI, toLongUri(uri)));
+                Log.d(TAG, join(Key.REQUEST, "LookupUri", Key.URI, toLongUri(uri)));
             }
             final Pair<UUriBatch, UStatus> pair = mDiscoveryManager.lookupUri(uri);
             final UUriBatch batch = pair.first;
             final UStatus status = pair.second;
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "LookupUri", Key.STATUS, status, Key.URI, batch));
+                Log.d(TAG, join(Key.RESPONSE, "LookupUri", Key.STATUS, status, Key.URI, batch));
             }
             response = LookupUriResponse.newBuilder().setUris(batch).setStatus(status).build();
         } catch (Exception e) {
-            final UStatus status = errorStatus(LOG_TAG, "LookupUri", toStatus(e));
+            final UStatus status = logStatus(TAG, "LookupUri", toStatus(e));
             response = LookupUriResponse.newBuilder().setStatus(status).build();
         }
         return packToAny(response);
@@ -143,17 +144,17 @@ public class RPCHandler implements PersistInterface {
             final UUri uri = LongUriSerializer.instance().deserialize(rawUri);
             final int depth = request.hasDepth() ? request.getDepth() : -1;
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "FindNodes", NODEURI, rawUri, DEPTH, depth));
+                Log.d(TAG, join(Key.REQUEST, "FindNodes", NODEURI, rawUri, DEPTH, depth));
             }
             final Pair<Node, UStatus> pair = mDiscoveryManager.findNode(uri, depth);
             final Node node = pair.first;
             final UStatus status = pair.second;
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "FindNodes", Key.STATUS, status, NODE, node));
+                Log.d(TAG, join(Key.RESPONSE, "FindNodes", Key.STATUS, status, NODE, node));
             }
             response = FindNodesResponse.newBuilder().addNodes(node).setStatus(status).build();
         } catch (Exception e) {
-            final UStatus status = errorStatus(LOG_TAG, "FindNodes", toStatus(e));
+            final UStatus status = logStatus(TAG, "FindNodes", toStatus(e));
             response = FindNodesResponse.newBuilder().setStatus(status).build();
         }
         return packToAny(response);
@@ -169,14 +170,14 @@ public class RPCHandler implements PersistInterface {
             final UUri uri = LongUriSerializer.instance().deserialize(rawUri);
             final ProtocolStringList list = request.getPropertiesList();
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "FindNodeProperties", NODEURI, rawUri,
+                Log.d(TAG, join(Key.REQUEST, "FindNodeProperties", NODEURI, rawUri,
                         "properties", list));
             }
             final Pair<Map<String, PropertyValue>, UStatus> pair = mDiscoveryManager.findNodeProperties(uri, list);
             final Map<String, PropertyValue> propertiesMap = pair.first;
             final UStatus status = pair.second;
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "FindNodeProperties", Key.STATUS, status,
+                Log.d(TAG, join(Key.RESPONSE, "FindNodeProperties", Key.STATUS, status,
                         "properties", propertiesMap));
             }
             response = FindNodePropertiesResponse.newBuilder()
@@ -184,7 +185,7 @@ public class RPCHandler implements PersistInterface {
                     .setStatus(status)
                     .build();
         } catch (Exception e) {
-            final UStatus status = errorStatus(LOG_TAG, "FindNodeProperties", toStatus(e));
+            final UStatus status = logStatus(TAG, "FindNodeProperties", toStatus(e));
             response = FindNodePropertiesResponse.newBuilder().setStatus(status).build();
         }
         return packToAny(response);
@@ -200,15 +201,15 @@ public class RPCHandler implements PersistInterface {
             final Node node = request.getNode();
             final int ttl = request.hasTtl() ? uMsg.getAttributes().getTtl() : -1;
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "UpdateNode", NODE, node, Key.TTL, ttl));
+                Log.d(TAG, join(Key.REQUEST, "UpdateNode", NODE, node, Key.TTL, ttl));
             }
             status = mDiscoveryManager.updateNode(node, ttl);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "UpdateNode", Key.STATUS, status));
+                Log.d(TAG, join(Key.RESPONSE, "UpdateNode", Key.STATUS, status));
             }
             refreshDatabase(status);
         } catch (Exception e) {
-            status = errorStatus(LOG_TAG, "UpdateNode", toStatus(e));
+            status = logStatus(TAG, "UpdateNode", toStatus(e));
         }
         return packToAny(status);
     }
@@ -224,16 +225,16 @@ public class RPCHandler implements PersistInterface {
             final String rawUri = request.getUri();
             final UUri uri = LongUriSerializer.instance().deserialize(rawUri);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "UpdateNodeProperty", Key.NAME, name,
+                Log.d(TAG, join(Key.REQUEST, "UpdateNodeProperty", Key.NAME, name,
                         Key.VALUE, value, NODEURI, rawUri));
             }
             status = mDiscoveryManager.updateProperty(name, value, uri);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "UpdateNodeProperty", Key.STATUS, status));
+                Log.d(TAG, join(Key.RESPONSE, "UpdateNodeProperty", Key.STATUS, status));
             }
             refreshDatabase(status);
         } catch (Exception e) {
-            status = errorStatus(LOG_TAG, "UpdateNodeProperty", toStatus(e));
+            status = logStatus(TAG, "UpdateNodeProperty", toStatus(e));
         }
         return packToAny(status);
     }
@@ -248,18 +249,18 @@ public class RPCHandler implements PersistInterface {
             final UUri uri = LongUriSerializer.instance().deserialize(rawUri);
             final List<Node> nodeList = request.getNodesList();
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "AddNodes", PARENT_URI, rawUri));
+                Log.d(TAG, join(Key.REQUEST, "AddNodes", PARENT_URI, rawUri));
             }
             if (VERBOSE) {
-                Log.v(LOG_TAG, join(Key.REQUEST, "AddNodes", NODELIST, nodeList));
+                Log.v(TAG, join(Key.REQUEST, "AddNodes", NODELIST, nodeList));
             }
             status = mDiscoveryManager.addNodes(uri, nodeList);
             refreshDatabase(status);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "AddNodes", Key.STATUS, status));
+                Log.d(TAG, join(Key.RESPONSE, "AddNodes", Key.STATUS, status));
             }
         } catch (Exception e) {
-            status = errorStatus(LOG_TAG, "AddNodes", toStatus(e));
+            status = logStatus(TAG, "AddNodes", toStatus(e));
         }
         return packToAny(status);
     }
@@ -273,15 +274,15 @@ public class RPCHandler implements PersistInterface {
             final ProtocolStringList urisList = request.getUrisList();
             final List<UUri> nodeUriList = deserializeUriList(urisList);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.REQUEST, "DeleteNodes", URILIST, urisList));
+                Log.d(TAG, join(Key.REQUEST, "DeleteNodes", URILIST, urisList));
             }
             status = mDiscoveryManager.deleteNodes(nodeUriList);
             if (DEBUG) {
-                Log.d(LOG_TAG, join(Key.RESPONSE, "DeleteNodes", Key.STATUS, status));
+                Log.d(TAG, join(Key.RESPONSE, "DeleteNodes", Key.STATUS, status));
             }
             refreshDatabase(status);
         } catch (Exception e) {
-            status = errorStatus(LOG_TAG, "DeleteNodes", toStatus(e));
+            status = logStatus(TAG, "DeleteNodes", toStatus(e));
         }
         return packToAny(status);
     }
@@ -306,40 +307,40 @@ public class RPCHandler implements PersistInterface {
                 throw new UStatusException(code, message);
             }
         } catch (Exception e) {
-            status = errorStatus(LOG_TAG, "processNotificationRegistration", toStatus(e));
+            status = logStatus(TAG, "processNotificationRegistration", toStatus(e));
         }
         return packToAny(status);
     }
 
     private UStatus registerNotifications(@NonNull UUri observer, @NonNull List<UUri> nodeUriList) {
         if (DEBUG) {
-            Log.d(LOG_TAG, join(Key.REQUEST, "RegisterForNotifications",
+            Log.d(TAG, join(Key.REQUEST, "RegisterForNotifications",
                     OBSERVER_URI, toLongUri(observer), URILIST, nodeUriList));
         }
         final UStatus status = mObserverManager.registerObserver(nodeUriList, observer);
         if (DEBUG) {
-            Log.d(LOG_TAG, join(Key.RESPONSE, "RegisterForNotifications", Key.STATUS, status));
+            Log.d(TAG, join(Key.RESPONSE, "RegisterForNotifications", Key.STATUS, status));
         }
         return status;
     }
 
     private UStatus UnregisterForNotifications(@NonNull UUri observer, @NonNull List<UUri> nodeUriList) {
         if (DEBUG) {
-            Log.d(LOG_TAG, join(Key.REQUEST, "UnregisterForNotifications",
+            Log.d(TAG, join(Key.REQUEST, "UnregisterForNotifications",
                     OBSERVER_URI, toLongUri(observer), URILIST, nodeUriList));
         }
         final UStatus status = mObserverManager.unregisterObserver(nodeUriList, observer);
         if (DEBUG) {
-            Log.d(LOG_TAG, join(Key.RESPONSE, "UnregisterForNotifications", Key.STATUS, status));
+            Log.d(TAG, join(Key.RESPONSE, "UnregisterForNotifications", Key.STATUS, status));
         }
         return status;
     }
 
     private void refreshDatabase(UStatus status) {
         if (isOk(status)) {
-            mAssetUtil.writeFileToInternalStorage(mContext, Constants.LDS_DB_FILENAME, mDiscoveryManager.export());
+            mAssetManager.writeFileToInternalStorage(mContext, Constants.LDS_DB_FILENAME, mDiscoveryManager.export());
             if (VERBOSE) {
-                Log.v(LOG_TAG, join(Key.MESSAGE, mDiscoveryManager.export()));
+                Log.v(TAG, join(Key.MESSAGE, mDiscoveryManager.export()));
             }
         }
     }

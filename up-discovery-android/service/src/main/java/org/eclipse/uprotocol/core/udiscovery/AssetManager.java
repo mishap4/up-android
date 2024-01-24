@@ -26,13 +26,13 @@ package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.content.Context;
 import android.util.Log;
 
 import androidx.annotation.VisibleForTesting;
-
-import org.eclipse.uprotocol.common.util.log.Formatter;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -41,29 +41,29 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 
-public class AssetUtility {
+public class AssetManager {
 
-    private static final String LOG_TAG = Formatter.tag("core", AssetUtility.class.getSimpleName());
-    private BufferedReader mBufferReader;
-    private FileWriter mWriter;
-    private File mFile;
+    private static final String TAG = tag(SERVICE.getName());
+    private final BufferedReader mBufferReader;
+    private final FileWriter mWriter;
+    private final File mFile;
 
-    public AssetUtility() {
+    public AssetManager() {
         mBufferReader = null;
         mWriter = null;
         mFile = null;
     }
 
     @VisibleForTesting
-    AssetUtility(BufferedReader reader, FileWriter writer, File file) {
+    AssetManager(BufferedReader reader, FileWriter writer, File file) {
         mBufferReader = reader;
         mWriter = writer;
         mFile = file;
     }
 
-    public String readFileFromInternalStorage(Context context, String sFileName) {
+    public String readFileFromInternalStorage(Context context, String fileName) {
         try {
-            final String filepath = context.getFilesDir() + "/" + sFileName;
+            final String filepath = context.getFilesDir() + "/" + fileName;
             final StringBuilder buffer = new StringBuilder();
             BufferedReader reader = (null != mBufferReader) ? mBufferReader :
                     new BufferedReader(new FileReader(filepath));
@@ -74,10 +74,10 @@ public class AssetUtility {
             return buffer.toString();
 
         } catch (FileNotFoundException e) {
-            Log.e(LOG_TAG, join("readFileFromInternalStorage", toStatus(e)));
+            Log.e(TAG, join("readFileFromInternalStorage", toStatus(e)));
             e.printStackTrace();
         } catch (IOException e) {
-            Log.e(LOG_TAG, join("readFileFromInternalStorage", toStatus(e)));
+            Log.e(TAG, join("readFileFromInternalStorage", toStatus(e)));
             e.printStackTrace();
         }
         return "";
@@ -92,7 +92,7 @@ public class AssetUtility {
             writer.close();
             return true;
         } catch (IOException e) {
-            Log.e(LOG_TAG, join("writeFileToInternalStorage", toStatus(e)));
+            Log.e(TAG, join("writeFileToInternalStorage", toStatus(e)));
             e.printStackTrace();
         }
         return false;

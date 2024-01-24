@@ -47,7 +47,7 @@ import org.robolectric.shadows.ShadowLog;
 import java.util.List;
 
 @RunWith(RobolectricTestRunner.class)
-public class DatabaseUtilityTest {
+public class DatabaseLoaderTest {
     private String nameShort = "a";
     private String nameMedium = "ab";
     private String nameLong = "abc";
@@ -92,31 +92,31 @@ public class DatabaseUtilityTest {
 
     @Test
     public void findNode_level_0() {
-        Node result = DatabaseUtility.internalFindNode(mNode, mLevel0);
+        Node result = DatabaseLoader.internalFindNode(mNode, mLevel0);
         assertNotNull(result);
     }
 
     @Test
     public void findNode_level_1() {
-        Node result = DatabaseUtility.internalFindNode(mNode, mLevel1);
+        Node result = DatabaseLoader.internalFindNode(mNode, mLevel1);
         assertNotNull(result);
     }
 
     @Test
     public void findNode_level_2() {
-        Node result = DatabaseUtility.internalFindNode(mNode, mLevel2);
+        Node result = DatabaseLoader.internalFindNode(mNode, mLevel2);
         assertNotNull(result);
     }
 
     @Test
     public void findNode_level_3() {
-        Node result = DatabaseUtility.internalFindNode(mNode, mLevel3);
+        Node result = DatabaseLoader.internalFindNode(mNode, mLevel3);
         assertNotNull(result);
     }
 
     @Test
     public void findNode_level_4() {
-        Node result = DatabaseUtility.internalFindNode(mNode, mLevel4);
+        Node result = DatabaseLoader.internalFindNode(mNode, mLevel4);
         assertNotNull(result);
     }
 
@@ -125,7 +125,7 @@ public class DatabaseUtilityTest {
         String uri = toLongUri(UUri.newBuilder().setAuthority(TEST_AUTHORITY).build());
         Node.Builder child = Node.newBuilder().setUri(uri);
         Node.Builder parent = Node.newBuilder().addNodes(child);
-        List<Node.Builder> path = DatabaseUtility.FindPathToNode(parent, uri);
+        List<Node.Builder> path = DatabaseLoader.FindPathToNode(parent, uri);
         assertFalse(path.isEmpty());
     }
 }

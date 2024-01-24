@@ -40,7 +40,7 @@ tasks.register('jacocoTestReport', JacocoReport) {
     sourceDirectories.from = ["${projectDir}/src/main/java"]
     classDirectories.from = fileTree(
             dir: "${buildDir}/intermediates/javac/debug/classes/",
-            excludes: ['**/IU*', '**/BuildConfig.class', '**/*_Impl*.*']
+            excludes: ['**/*_Impl*.*']
     )
     doLast {
         println "Unit-test coverage report generated at folder: ${buildDir}/reports/jacoco/jacocoTestReport/"

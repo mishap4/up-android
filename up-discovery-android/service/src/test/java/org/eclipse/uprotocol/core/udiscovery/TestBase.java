@@ -25,6 +25,7 @@
 package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
+import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 
 import android.util.Log;
 
@@ -43,10 +44,10 @@ import org.eclipse.uprotocol.v1.UEntity;
 import java.util.List;
 
 public class TestBase {
-    public static final String LOG_TAG = TestBase.class.getSimpleName();
+    public static final String TAG = tag("core", TestBase.class.getSimpleName());
     public static final String SERVICE_NAME = "core.udiscovery";
     public static final String TEST_VIN = "1gk12d1t2n10339dc";
-    public static final String TEST_DOMAIN = TEST_VIN + ".veh.ultifi.gm.com";
+    public static final String TEST_DOMAIN = TEST_VIN + ".veh.protocol.gm.com";
     public static final String TEST_DEVICE = "vcu";
     public static final String TEST_NAME = String.join(".", TEST_DEVICE, TEST_DOMAIN);
     public static final UAuthority TEST_AUTHORITY = UAuthority.newBuilder().setName(TEST_NAME).build();
@@ -62,7 +63,7 @@ public class TestBase {
     public static final String TEST_INSTANCE_4 = "rear_right";
     public static final String TEST_PROPERTY1 = "ent_prop1";
     public static final String TEST_PROPERTY2 = "ent_prop2";
-    public static final UEntity SERVICE = UEntity.newBuilder().setName(SERVICE_NAME).setVersionMajor(2).build();
+    public static final UEntity SERVICE = UEntity.newBuilder().setName(SERVICE_NAME).setVersionMajor(3).build();
     public static final UEntity TEST_ENTITY = UEntity.newBuilder().setName(TEST_ENTITY_NAME).setVersionMajor(1).build();
     public static final UAuthority TEST_AUTHORITY2 = UAuthority.newBuilder().setName(TEST_ALTERNATE_ENTITY).build();
     public static final int DEFAULT_DEPTH = -1;
@@ -74,7 +75,7 @@ public class TestBase {
         try {
             JsonFormat.parser().merge(json, bld);
         } catch (InvalidProtocolBufferException e) {
-            Log.e(LOG_TAG, join(Key.MESSAGE, "jsonToNode", Key.FAILURE, e));
+            Log.e(TAG, join(Key.MESSAGE, "jsonToNode", Key.FAILURE, e));
         }
         return bld.build();
     }

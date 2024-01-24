@@ -41,5 +41,5 @@ dependencyResolutionManagement {
 
 apply from: 'gradle/config.gradle'
 
-rootProject.name = "UDiscoveryService"
+rootProject.name = "uDiscovery Service"
 include ':service'
