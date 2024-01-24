@@ -106,8 +106,8 @@ dependencies {
     implementation libs.kotlinx.coroutines
     ksp libs.room.compiler
     implementation libs.room.ktx
-    implementation libs.uprotocol.java
-    implementation libs.uprotocol.ulink.android
+    implementation libs.up.java
+    implementation libs.up.client.android.java
 
     testImplementation libs.androidx.junit
     testImplementation libs.junit
