@@ -35,6 +35,8 @@ import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.deserializeUriList;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
@@ -297,9 +299,9 @@ public class RPCHandler implements PersistInterface {
             final String rawUri = request.getObserver().getUri();
             final UUri observerUri = LongUriSerializer.instance().deserialize(rawUri);
             final List<UUri> nodeUriList = deserializeUriList(request.getUrisList());
-            if (UDiscoveryService.METHOD_REGISTER_FOR_NOTIFICATIONS.equals(methodName)) {
+            if (METHOD_REGISTER_FOR_NOTIFICATIONS.equals(methodName)) {
                 status = registerNotifications(observerUri, nodeUriList);
-            } else if (UDiscoveryService.METHOD_UNREGISTER_FOR_NOTIFICATIONS.equals(methodName)) {
+            } else if (METHOD_UNREGISTER_FOR_NOTIFICATIONS.equals(methodName)) {
                 status = UnregisterForNotifications(observerUri, nodeUriList);
             } else {
                 final UCode code = UCode.INVALID_ARGUMENT;

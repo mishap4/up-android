@@ -33,6 +33,15 @@ import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
 import static org.eclipse.uprotocol.common.util.log.Formatter.status;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_ADD_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_DELETE_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_FIND_NODES;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_FIND_NODE_PROPERTIES;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_LOOKUP_URI;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UPDATE_NODE;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UPDATE_PROPERTY;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 
@@ -81,31 +90,21 @@ import java.util.function.BiConsumer;
 @SuppressWarnings({"java:S1200", "java:S3008", "java:S1134"})
 public class UDiscoveryService extends Service implements NetworkStatusInterface, UPClient.ServiceLifecycleListener {
     public static final String TAG = tag(SERVICE.getName());
-
+    public static final UUri TOPIC_NODE_NOTIFICATION = buildCreateTopicUri();
     private static final CharSequence NOTIFICATION_CHANNEL_NAME = TAG;
     private static final int NOTIFICATION_ID = 1;
-    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
-    public static final String METHOD_LOOKUP_URI = "LookupUri";
-    public static final String METHOD_FIND_NODES = "FindNodes";
-    public static final String METHOD_FIND_NODE_PROPERTIES = "FindNodeProperties";
-    public static final String METHOD_UPDATE_NODE = "UpdateNode";
-    public static final String METHOD_ADD_NODES = "AddNodes";
-    public static final String METHOD_DELETE_NODES = "DeleteNodes";
-    public static final String METHOD_UPDATE_PROPERTY = "UpdateProperty";
-    public static final String METHOD_REGISTER_FOR_NOTIFICATIONS = "RegisterForNotifications";
-    public static final String METHOD_UNREGISTER_FOR_NOTIFICATIONS = "UnregisterForNotifications";
-    public static final UUri TOPIC_NODE_NOTIFICATION = buildCreateTopicUri();
     private static final String DATABASE_NOT_INITIALIZED = "Database not initialized";
     private static final String NOTIFICATION_CHANNEL_ID = UDiscoveryService.class.getPackageName();
+    protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
     private final ScheduledExecutorService mExecutor = Executors.newScheduledThreadPool(1);
     private final Map<UUri, BiConsumer<UMessage, CompletableFuture<UPayload>>> mMethodHandlers = new HashMap<>();
     private final URpcListener mRequestEventListener = this::handleRequestEvent;
     private final NetworkCallback mNetworkCallback = new NetworkCallback(this);
     private final Binder mBinder = new Binder() {
     };
+    private final AtomicBoolean mDatabaseInitialized = new AtomicBoolean(false);
     private RPCHandler mRpcHandler;
     private DatabaseLoader mDatabaseLoader;
-    private final AtomicBoolean mDatabaseInitialized = new AtomicBoolean(false);
     private UPClient mUpClient;
     private ConnectivityManager mConnectivityManager;
     private CompletableFuture<Boolean> mNetworkAvailableFuture = new CompletableFuture<>();

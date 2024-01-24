@@ -29,6 +29,8 @@ import static org.eclipse.uprotocol.core.udiscovery.common.Constants.LDS_DB_FILE
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
 import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
 import static org.junit.Assert.assertEquals;
@@ -509,8 +511,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.registerObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
-        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
-                UDiscoveryService.METHOD_REGISTER_FOR_NOTIFICATIONS);
+        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg, METHOD_REGISTER_FOR_NOTIFICATIONS);
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
@@ -534,7 +535,7 @@ public class RPCHandlerTest extends TestBase {
         when(mObserverManager.registerObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
         UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
-                UDiscoveryService.METHOD_REGISTER_FOR_NOTIFICATIONS);
+                METHOD_REGISTER_FOR_NOTIFICATIONS);
 
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
@@ -557,8 +558,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.unregisterObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
-        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
-                UDiscoveryService.METHOD_UNREGISTER_FOR_NOTIFICATIONS);
+        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg, METHOD_UNREGISTER_FOR_NOTIFICATIONS);
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
@@ -580,8 +580,7 @@ public class RPCHandlerTest extends TestBase {
         UStatus okStatus = buildStatus(UCode.OK, "OK");
         when(mObserverManager.unregisterObserver(List.of(nodeUri), ObserverUri)).thenReturn(okStatus);
 
-        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg,
-                UDiscoveryService.METHOD_UNREGISTER_FOR_NOTIFICATIONS);
+        UPayload uPayload = mRPCHandler.processNotificationRegistration(uMsg, METHOD_UNREGISTER_FOR_NOTIFICATIONS);
         UStatus status = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
@@ -635,11 +634,11 @@ public class RPCHandlerTest extends TestBase {
         UStatus deleteNodesStatus = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        uPayload = mRPCHandler.processNotificationRegistration(uMsg, UDiscoveryService.METHOD_REGISTER_FOR_NOTIFICATIONS);
+        uPayload = mRPCHandler.processNotificationRegistration(uMsg, METHOD_REGISTER_FOR_NOTIFICATIONS);
         UStatus registerForNotificationStatus = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
-        uPayload = mRPCHandler.processNotificationRegistration(uMsg, UDiscoveryService.METHOD_UNREGISTER_FOR_NOTIFICATIONS);
+        uPayload = mRPCHandler.processNotificationRegistration(uMsg, METHOD_UNREGISTER_FOR_NOTIFICATIONS);
         UStatus unregisterForNotificationStatus = unpack(uPayload, UStatus.class).
                 orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
 
