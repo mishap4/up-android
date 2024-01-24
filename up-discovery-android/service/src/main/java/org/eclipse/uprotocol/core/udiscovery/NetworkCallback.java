@@ -26,6 +26,7 @@ package org.eclipse.uprotocol.core.udiscovery;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.VERBOSE;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 
 import android.net.ConnectivityManager;
@@ -42,7 +43,7 @@ public class NetworkCallback extends ConnectivityManager.NetworkCallback {
     private static final String TAG = tag(SERVICE.getName());
     private static final String NETWORK = "network";
     private static final String NETWORKCAPABILITIES = "networkcapabilities";
-    private NetworkStatusInterface mNwStatusInterface;
+    private final NetworkStatusInterface mNwStatusInterface;
 
     NetworkCallback(NetworkStatusInterface nwStatusInterface) {
         mNwStatusInterface = nwStatusInterface;
@@ -62,7 +63,7 @@ public class NetworkCallback extends ConnectivityManager.NetworkCallback {
 
     @Override
     public void onCapabilitiesChanged(@NonNull Network network, @NonNull NetworkCapabilities networkCapabilities) {
-        if (UDiscoveryService.VERBOSE) {
+        if (VERBOSE) {
             Log.v(TAG, join(Key.CONNECTION, "Network capabilities changed", Key.STATE, network, NETWORKCAPABILITIES, networkCapabilities));
         }
     }

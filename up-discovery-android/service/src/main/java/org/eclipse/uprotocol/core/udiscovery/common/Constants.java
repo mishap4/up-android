@@ -38,7 +38,6 @@ public class Constants {
     public static final String JSON_DATA = "data";
     public static final String JSON_HASH = "hash";
     public static final String LDS_DB_FILENAME = "lds.json";
-
     public static final String LDS_DEVICE_NAME = "device_name";
     public static final String LDS_DOMAIN_NAME = "domain_name";
     public static final UAuthority LDS_AUTHORITY = UAuthority.newBuilder().setName(

@@ -31,7 +31,7 @@ import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.OBSERVER_URI;
 import static org.eclipse.uprotocol.core.udiscovery.RPCHandler.NODEURI;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
+import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.SERVICE;
 

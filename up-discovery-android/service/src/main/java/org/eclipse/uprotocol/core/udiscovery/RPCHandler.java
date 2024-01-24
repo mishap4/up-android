@@ -31,9 +31,9 @@ import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.OBSERVER_URI;
 import static org.eclipse.uprotocol.core.udiscovery.Notifier.PARENT_URI;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.deserializeUriList;
+import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.logStatus;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_REGISTER_FOR_NOTIFICATIONS;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
@@ -113,10 +113,10 @@ public class RPCHandler implements PersistInterface {
         mAssetManager.writeFileToInternalStorage(mContext, Constants.LDS_DB_FILENAME, data);
     }
 
-    public UPayload processLookupUriFromLDS(@NonNull UMessage uMsg) {
+    public UPayload processLookupUriFromLDS(@NonNull UMessage message) {
         LookupUriResponse response;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final UUri uri = unpack(payload, UUri.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             if (DEBUG) {
@@ -136,10 +136,10 @@ public class RPCHandler implements PersistInterface {
         return packToAny(response);
     }
 
-    public UPayload processFindNodesFromLDS(@NonNull UMessage uMsg) {
+    public UPayload processFindNodesFromLDS(@NonNull UMessage message) {
         FindNodesResponse response;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final FindNodesRequest request = unpack(payload, FindNodesRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final String rawUri = request.getUri();
@@ -162,10 +162,10 @@ public class RPCHandler implements PersistInterface {
         return packToAny(response);
     }
 
-    public UPayload processFindNodeProperties(@NonNull UMessage uMsg) {
+    public UPayload processFindNodeProperties(@NonNull UMessage message) {
         FindNodePropertiesResponse response;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final FindNodePropertiesRequest request = unpack(payload, FindNodePropertiesRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final String rawUri = request.getUri();
@@ -193,15 +193,15 @@ public class RPCHandler implements PersistInterface {
         return packToAny(response);
     }
 
-    public UPayload processLDSUpdateNode(@NonNull UMessage uMsg) {
+    public UPayload processLDSUpdateNode(@NonNull UMessage message) {
         UStatus status;
         try {
 
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final UpdateNodeRequest request = unpack(payload, UpdateNodeRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final Node node = request.getNode();
-            final int ttl = request.hasTtl() ? uMsg.getAttributes().getTtl() : -1;
+            final int ttl = request.hasTtl() ? message.getAttributes().getTtl() : -1;
             if (DEBUG) {
                 Log.d(TAG, join(Key.REQUEST, "UpdateNode", NODE, node, Key.TTL, ttl));
             }
@@ -216,10 +216,10 @@ public class RPCHandler implements PersistInterface {
         return packToAny(status);
     }
 
-    public UPayload processLDSUpdateProperty(@NonNull UMessage uMsg) {
+    public UPayload processLDSUpdateProperty(@NonNull UMessage message) {
         UStatus status;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final UpdatePropertyRequest request = unpack(payload, UpdatePropertyRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final String name = request.getProperty();
@@ -241,10 +241,10 @@ public class RPCHandler implements PersistInterface {
         return packToAny(status);
     }
 
-    public UPayload processAddNodesLDS(@NonNull UMessage uMsg) {
+    public UPayload processAddNodesLDS(@NonNull UMessage message) {
         UStatus status;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final AddNodesRequest request = unpack(payload, AddNodesRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final String rawUri = request.getParentUri();
@@ -267,10 +267,10 @@ public class RPCHandler implements PersistInterface {
         return packToAny(status);
     }
 
-    public UPayload processDeleteNodes(@NonNull UMessage uMsg) {
+    public UPayload processDeleteNodes(@NonNull UMessage message) {
         UStatus status;
         try {
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final DeleteNodesRequest request = unpack(payload, DeleteNodesRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final ProtocolStringList urisList = request.getUrisList();
@@ -289,11 +289,11 @@ public class RPCHandler implements PersistInterface {
         return packToAny(status);
     }
 
-    public UPayload processNotificationRegistration(@NonNull UMessage uMsg, String methodName) {
+    public UPayload processNotificationRegistration(@NonNull UMessage message, String methodName) {
         UStatus status;
         try {
             checkStringNotEmpty(methodName, "methodName is empty");
-            final UPayload payload = uMsg.getPayload();
+            final UPayload payload = message.getPayload();
             final NotificationsRequest request = unpack(payload, NotificationsRequest.class).
                     orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
             final String rawUri = request.getObserver().getUri();
@@ -304,9 +304,7 @@ public class RPCHandler implements PersistInterface {
             } else if (METHOD_UNREGISTER_FOR_NOTIFICATIONS.equals(methodName)) {
                 status = UnregisterForNotifications(observerUri, nodeUriList);
             } else {
-                final UCode code = UCode.INVALID_ARGUMENT;
-                final String message = "unknown method " + methodName;
-                throw new UStatusException(code, message);
+                throw new UStatusException(UCode.INVALID_ARGUMENT, "unknown method " + methodName);
             }
         } catch (Exception e) {
             status = logStatus(TAG, "processNotificationRegistration", toStatus(e));

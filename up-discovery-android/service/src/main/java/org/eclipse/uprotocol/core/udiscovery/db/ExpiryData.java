@@ -27,14 +27,14 @@ package org.eclipse.uprotocol.core.udiscovery.db;
 import java.util.concurrent.ScheduledFuture;
 
 public class ExpiryData {
-    public final String uri;
-    public final String exp;
-    public final ScheduledFuture<?> future;
+    public final String mUri;
+    public final String mExpireDateTime;
+    public final ScheduledFuture<?> mFuture;
 
-    public ExpiryData(String uri, String exp, ScheduledFuture<?> future) {
-        this.uri = uri;
-        this.exp = exp;
-        this.future = future;
+    public ExpiryData(String Uri, String expireDateTime, ScheduledFuture<?> future) {
+        this.mUri = Uri;
+        this.mExpireDateTime = expireDateTime;
+        this.mFuture = future;
     }
 }
 

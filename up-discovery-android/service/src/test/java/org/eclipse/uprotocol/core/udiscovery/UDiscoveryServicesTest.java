@@ -29,9 +29,11 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
+import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.DEBUG;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.TOPIC_NODE_NOTIFICATION;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
+import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.hasCharAt;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_ADD_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_DELETE_NODES;
 import static org.eclipse.uprotocol.core.udiscovery.v3.UDiscovery.METHOD_FIND_NODES;
@@ -87,6 +89,8 @@ import org.eclipse.uprotocol.rpc.CallOptions;
 import org.eclipse.uprotocol.rpc.URpcListener;
 import org.eclipse.uprotocol.transport.builder.UAttributesBuilder;
 import org.eclipse.uprotocol.uri.builder.UResourceBuilder;
+import org.eclipse.uprotocol.v1.UAttributes;
+import org.eclipse.uprotocol.v1.UAuthority;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
@@ -154,31 +158,32 @@ public class UDiscoveryServicesTest extends TestBase {
 
     private static void setLogLevel(int level) {
         UDiscoveryService.VERBOSE = (level <= Log.VERBOSE);
+        UDiscoveryService.DEBUG = (level <= Log.DEBUG);
     }
 
     @BeforeClass
     public static void init() {
-        mLookupUriUMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UUri.getDefaultInstance()));
+        mLookupUriUMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UUri.getDefaultInstance()), true);
 
-        mFindNodeUMsg = buildUMessage(METHOD_FIND_NODES, packToAny(FindNodesRequest.getDefaultInstance()));
+        mFindNodeUMsg = buildUMessage(METHOD_FIND_NODES, packToAny(FindNodesRequest.getDefaultInstance()), true);
 
-        mUpdateNodeUMsg = buildUMessage(METHOD_UPDATE_NODE, packToAny(UpdateNodeRequest.getDefaultInstance()));
+        mUpdateNodeUMsg = buildUMessage(METHOD_UPDATE_NODE, packToAny(UpdateNodeRequest.getDefaultInstance()), true);
 
         mFindNodePropertiesUMsg = buildUMessage(METHOD_FIND_NODE_PROPERTIES,
-                packToAny(FindNodePropertiesRequest.getDefaultInstance()));
+                packToAny(FindNodePropertiesRequest.getDefaultInstance()), true);
 
-        mAddNodesUMsg = buildUMessage(METHOD_ADD_NODES, packToAny(AddNodesRequest.getDefaultInstance()));
+        mAddNodesUMsg = buildUMessage(METHOD_ADD_NODES, packToAny(AddNodesRequest.getDefaultInstance()), true);
 
-        mDeleteNodesUMsg = buildUMessage(METHOD_DELETE_NODES, packToAny(DeleteNodesRequest.getDefaultInstance()));
+        mDeleteNodesUMsg = buildUMessage(METHOD_DELETE_NODES, packToAny(DeleteNodesRequest.getDefaultInstance()), true);
 
         mRegisterUMsg = buildUMessage(METHOD_REGISTER_FOR_NOTIFICATIONS,
-                packToAny(NotificationsRequest.getDefaultInstance()));
+                packToAny(NotificationsRequest.getDefaultInstance()), true);
 
         mUnRegisterUMsg = buildUMessage(METHOD_UNREGISTER_FOR_NOTIFICATIONS,
-                packToAny(NotificationsRequest.getDefaultInstance()));
+                packToAny(NotificationsRequest.getDefaultInstance()), true);
 
         mUpdatePropertyUMsg = buildUMessage(METHOD_UPDATE_PROPERTY,
-                packToAny(UpdatePropertyRequest.getDefaultInstance()));
+                packToAny(UpdatePropertyRequest.getDefaultInstance()), true);
 
         UEntity entity1 = UEntity.newBuilder().setName("body.cabin_climate/1").build();
         UEntity entity2 = UEntity.newBuilder().setName("body.cabin_climate/2").build();
@@ -210,11 +215,14 @@ public class UDiscoveryServicesTest extends TestBase {
         mNotFoundStatus = buildStatus(UCode.NOT_FOUND, "NOT FOUND");
     }
 
-    private static UMessage buildUMessage(String methodUri, UPayload uPayload) {
+    private static UMessage buildUMessage(String methodUri, UPayload uPayload, boolean isSink) {
         UResource uResource = UResourceBuilder.forRpcRequest(methodUri);
         UUri uUri = UUri.newBuilder().setEntity(SERVICE).setResource(uResource).build();
         UAttributesBuilder uAttributesBuilder = UAttributesBuilder.request(UPriority.UPRIORITY_CS4, uUri, TTL);
-        return UMessage.newBuilder().setAttributes(uAttributesBuilder.build()).setPayload(uPayload).build();
+        if (isSink) {
+            return UMessage.newBuilder().setAttributes(uAttributesBuilder.build()).setPayload(uPayload).build();
+        }
+        return UMessage.newBuilder().setAttributes(uAttributesBuilder.build()).clearAttributes().setPayload(uPayload).build();
     }
 
     @Before
@@ -231,7 +239,10 @@ public class UDiscoveryServicesTest extends TestBase {
 
         CompletableFuture<UPayload> responseCreateTopic = CompletableFuture.completedFuture(packToAny(STATUS_OK));
         CompletableFuture<UPayload> responseCreateTopicException = CompletableFuture.failedFuture(new UStatusException(UCode.UNKNOWN, "Unable to connect"));
+        setLogLevel(Log.DEBUG);
         when(mUpClient.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).thenReturn(responseCreateTopic);
+        Thread.sleep(100);
+        setLogLevel(Log.INFO);
         when(mUpClient.invokeMethod(TOPIC_NODE_NOTIFICATION, UPayload.getDefaultInstance(), CallOptions.DEFAULT)).
                 thenReturn(responseCreateTopicException);
 
@@ -259,6 +270,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_ulink_connect_exception() {
+        setLogLevel(Log.VERBOSE);
         CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(mFailedStatus);
         UPClient mockLink = mock(UPClient.class);
         when(mockLink.connect()).thenReturn(connectFut);
@@ -290,6 +302,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_handler_uninitialized_exception() throws InterruptedException {
+        setLogLevel(Log.DEBUG);
         DatabaseLoader mockLoader = mock(DatabaseLoader.class);
         when(mockLoader.initializeLDS()).thenReturn(DatabaseLoader.InitLDSCode.FAILURE);
         new UDiscoveryService(mContext, mRpcHandler, mUpClient, mockLoader, mConnectivityMgr);
@@ -326,6 +339,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_uLink_registerMethod_exception() throws InterruptedException {
+        setLogLevel(Log.VERBOSE);
         CompletableFuture<UStatus> connectFut = CompletableFuture.completedFuture(STATUS_OK);
         when(mUpClient.connect()).thenReturn(connectFut);
 
@@ -341,6 +355,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_uLink_unRegisterMethod_exception() throws InterruptedException {
+        setLogLevel(Log.DEBUG);
         //when(mDatabaseLoader.getAuthority()).thenReturn(TEST_AUTHORITY);
         when(mUpClient.unregisterRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(mFailedStatus);
@@ -353,10 +368,25 @@ public class UDiscoveryServicesTest extends TestBase {
     }
 
     @Test
+    public void negative_withoutSink_handleRequestEvent() {
+        UUri uri = UUri.newBuilder().setEntity(TEST_ENTITY).
+                setResource(UResourceBuilder.forRpcRequest("fakeMethod")).build();
+        UMessage uMsg = buildUMessage(uri.toString(), packToAny(Any.getDefaultInstance()), false);
+        CompletableFuture<UPayload> fut = new CompletableFuture<>();
+        mHandler.onReceive(uMsg, fut);
+        fut.whenComplete((result, ex) -> {
+            assertNotNull(ex);
+            assertEquals(UCode.INVALID_ARGUMENT_VALUE, toStatus(ex).getCode());
+        });
+    }
+
+    @Test
     public void negative_handleRequestEvent() {
+        UAttributes.newBuilder().setSink(UUri.newBuilder().setAuthority(UAuthority.newBuilder().setName("hello"))).
+                setSink(UUri.newBuilder().setAuthority(UAuthority.newBuilder().setName("hello"))).build();
         UUri uri = UUri.newBuilder().setEntity(SERVICE).
                 setResource(UResourceBuilder.forRpcRequest("fakeMethod")).build();
-        UMessage uMsg = buildUMessage(uri.toString(), packToAny(Any.getDefaultInstance()));
+        UMessage uMsg = buildUMessage(uri.toString(), packToAny(Any.getDefaultInstance()), true);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(uMsg, fut);
         fut.whenComplete((result, ex) -> {
@@ -385,7 +415,7 @@ public class UDiscoveryServicesTest extends TestBase {
         UPayload lookupUriResult = packToAny(mNotFoundStatus);
         when(mRpcHandler.processLookupUriFromLDS(any(UMessage.class))).thenReturn(lookupUriResult);
 
-        UMessage uMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UMessage.getDefaultInstance()));
+        UMessage uMsg = buildUMessage(METHOD_LOOKUP_URI, packToAny(UMessage.getDefaultInstance()), true);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(uMsg, fut);
 
@@ -397,6 +427,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_executeLookupUri_throw_exception() {
+        setLogLevel(Log.DEBUG);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(mLookupUriUMsg, fut);
 
@@ -429,7 +460,7 @@ public class UDiscoveryServicesTest extends TestBase {
         UPayload findNodeResult = packToAny(response);
         when(mRpcHandler.processFindNodesFromLDS(any(UMessage.class))).thenReturn(findNodeResult);
 
-        UMessage uMsg = buildUMessage(METHOD_FIND_NODES, UPayload.getDefaultInstance());
+        UMessage uMsg = buildUMessage(METHOD_FIND_NODES, UPayload.getDefaultInstance(), true);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(uMsg, fut);
 
@@ -441,6 +472,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void executeFindNodes_throw_exception() {
+        setLogLevel(Log.DEBUG);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(mFindNodeUMsg, fut);
 
@@ -470,6 +502,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_executeUpdateNode_throw_exception() {
+        setLogLevel(Log.DEBUG);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(mUpdateNodeUMsg, fut);
 
@@ -497,6 +530,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_executeFindNodesProperty_throw_exception() {
+        setLogLevel(Log.DEBUG);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(mFindNodePropertiesUMsg, fut);
 
@@ -525,6 +559,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_executeAddNodes_throw_exception() {
+        setLogLevel(Log.DEBUG);
         CompletableFuture<UPayload> fut = new CompletableFuture<>();
         mHandler.onReceive(mAddNodesUMsg, fut);
 
@@ -647,13 +682,20 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void testOnCreate() {
+        setLogLevel(Log.DEBUG);
         UDiscoveryService service = Robolectric.setupService(UDiscoveryService.class);
+        assertNotEquals(mService, service);
+        setLogLevel(Log.INFO);
+        service = Robolectric.setupService(UDiscoveryService.class);
         assertNotEquals(mService, service);
     }
 
     @SuppressWarnings("AssertBetweenInconvertibleTypes")
     @Test
     public void testBinder() {
+        setLogLevel(Log.DEBUG);
+        assertNotEquals(mService, mService.onBind(new Intent()));
+        setLogLevel(Log.INFO);
         assertNotEquals(mService, mService.onBind(new Intent()));
     }
 
@@ -680,7 +722,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_networkCallbacks() {
-        setLogLevel(Log.INFO);
+        setLogLevel(Log.DEBUG);
         mService.setNetworkStatus(false);
         AtomicBoolean flag = new AtomicBoolean(false);
         NetworkStatusInterface consumer = flag::set;
@@ -710,6 +752,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void positive_serviceListener() {
+        setLogLevel(Log.INFO);
         mService.onLifecycleChanged(mUpClient, true);
         AtomicBoolean flag = new AtomicBoolean(false);
         UPClient.ServiceLifecycleListener sl = (upClient, ready) -> flag.set(ready);
@@ -719,10 +762,17 @@ public class UDiscoveryServicesTest extends TestBase {
 
     @Test
     public void negative_serviceListener() {
+        setLogLevel(Log.DEBUG);
         mService.onLifecycleChanged(mUpClient, false);
         AtomicBoolean flag = new AtomicBoolean(false);
         UPClient.ServiceLifecycleListener sl = (upClient, ready) -> flag.set(ready);
         sl.onLifecycleChanged(mUpClient, false);
         assertFalse(flag.get());
+    }
+
+    @Test
+    public void test_UtilsChatAt() {
+        assertFalse(hasCharAt("", 1,  '4'));
+        assertFalse(hasCharAt("", -1,  '4'));
     }
 }

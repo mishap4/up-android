@@ -1,7 +1,9 @@
 package org.eclipse.uprotocol.core.udiscovery.internal;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
+import static org.eclipse.uprotocol.common.util.log.Formatter.status;
 
+import android.util.Log;
 import android.util.Pair;
 
 import androidx.annotation.NonNull;
@@ -10,7 +12,9 @@ import com.google.protobuf.ProtocolStringList;
 
 import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
 import org.eclipse.uprotocol.v1.UAuthority;
+import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UEntity;
+import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.util.List;
@@ -42,6 +46,8 @@ public final class Utils {
         return LongUriSerializer.instance().serialize(uri);
     }
 
+    public static UUri fromLongUri(String uri) { return LongUriSerializer.instance().deserialize(uri); }
+
     public static String sanitizeUri(String uri) {
         LongUriSerializer lus = LongUriSerializer.instance();
         return lus.serialize(lus.deserialize(uri));
@@ -59,4 +65,13 @@ public final class Utils {
         return string.charAt(index) == ch;
     }
 
+    public static @NonNull UStatus logStatus(@NonNull String tag, @NonNull String method, @NonNull UStatus status,
+                                         Object... args) {
+        if ((status != null) && (status.getCode() == UCode.OK)) {
+            Log.i(tag, status(method, status, args));
+        } else {
+            Log.e(tag, status(method, status, args));
+        }
+        return status;
+    }
 }

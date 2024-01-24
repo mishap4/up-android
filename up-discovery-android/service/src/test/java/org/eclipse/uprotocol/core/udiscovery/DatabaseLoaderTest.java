@@ -37,7 +37,6 @@ import static org.mockito.Mockito.when;
 import android.content.Context;
 import android.util.Log;
 
-import org.eclipse.uprotocol.UPClient;
 import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.common.Constants;
@@ -60,13 +59,10 @@ import java.lang.reflect.Method;
 public class DatabaseLoaderTest extends TestBase {
 
     public static final String TAG = tag(SERVICE.getName());
-    private static boolean deadlineExceededFlag = false;
     @Mock
     public AssetManager mAssetManager;
     @Mock
     public Context appContext;
-    @Mock
-    public UPClient mUpClient;
     @Mock
     public Notifier mNotifier;
     @Rule //initMocks

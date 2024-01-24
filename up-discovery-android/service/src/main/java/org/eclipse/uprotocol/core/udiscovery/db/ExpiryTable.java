@@ -33,8 +33,8 @@ import java.util.ArrayList;
 public class ExpiryTable extends ArrayList<ExpiryData> {
     public void clear() {
         for (ExpiryData ed : this) {
-            if (ed.future != null) {
-                ed.future.cancel(false);
+            if (ed.mFuture != null) {
+                ed.mFuture.cancel(false);
             }
         }
         super.clear();
@@ -43,9 +43,9 @@ public class ExpiryTable extends ArrayList<ExpiryData> {
     public ExpiryData remove(String uri) {
         for (var i = 0; i < this.size(); i++) {
             ExpiryData ed = this.get(i);
-            if (ed.uri.equals(uri)) {
-                if (ed.future != null) {
-                    ed.future.cancel(false);
+            if (ed.mUri.equals(uri)) {
+                if (ed.mFuture != null) {
+                    ed.mFuture.cancel(false);
                 }
                 return this.remove(i);
             }
@@ -56,7 +56,7 @@ public class ExpiryTable extends ArrayList<ExpiryData> {
     public JsonObject export() {
         var ota = new JsonObject();
         for (ExpiryData ed : this) {
-            ota.addProperty(ed.uri, ed.exp);
+            ota.addProperty(ed.mUri, ed.mExpireDateTime);
         }
         var ttl = new JsonObject();
         ttl.add(JSON_HIERARCHY, ota);
