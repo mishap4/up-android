@@ -56,7 +56,7 @@ import org.robolectric.shadows.ShadowLog;
 import java.lang.reflect.Method;
 
 @RunWith(RobolectricTestRunner.class)
-public class DatabaseLoaderTest extends TestBase {
+public class ResourceLoaderTest extends TestBase {
 
     public static final String TAG = tag(SERVICE.getName());
     @Mock
@@ -69,7 +69,7 @@ public class DatabaseLoaderTest extends TestBase {
     public MockitoRule rule = MockitoJUnit.rule();
     public IntegrityCheck mIntegrity;
     public DiscoveryManager mDiscoveryMgr;
-    DatabaseLoader mDatabaseLoader;
+    ResourceLoader mResourceLoader;
 
     // using reflection to access hidden static SystemProperties.setProperty function
     public static void setProperty(String key, String value) {
@@ -84,8 +84,8 @@ public class DatabaseLoaderTest extends TestBase {
     }
 
     private static void setLogLevel(int level) {
-        DatabaseLoader.DEBUG = (level <= Log.DEBUG);
-        DatabaseLoader.VERBOSE = (level <= VERBOSE);
+        ResourceLoader.DEBUG = (level <= Log.DEBUG);
+        ResourceLoader.VERBOSE = (level <= VERBOSE);
     }
 
     @Before
@@ -94,7 +94,7 @@ public class DatabaseLoaderTest extends TestBase {
         setLogLevel(Log.DEBUG);
         mIntegrity = new IntegrityCheck();
         mDiscoveryMgr = new DiscoveryManager(mNotifier);
-        mDatabaseLoader = Mockito.spy(new DatabaseLoader(appContext, mAssetManager, mDiscoveryMgr));
+        mResourceLoader = Mockito.spy(new ResourceLoader(appContext, mAssetManager, mDiscoveryMgr));
     }
 
     @Test
@@ -103,8 +103,8 @@ public class DatabaseLoaderTest extends TestBase {
         when(mAssetManager.readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME)).thenReturn(REGISTRY_JSON);
         DiscoveryManager discoveryManager = Mockito.spy(new DiscoveryManager(mNotifier));
         when(discoveryManager.load(REGISTRY_JSON)).thenReturn(true);
-        mDatabaseLoader = Mockito.spy(new DatabaseLoader(appContext, mAssetManager, discoveryManager));
-        assertEquals(DatabaseLoader.InitLDSCode.SUCCESS, mDatabaseLoader.initializeLDS());
+        mResourceLoader = Mockito.spy(new ResourceLoader(appContext, mAssetManager, discoveryManager));
+        assertEquals(ResourceLoader.InitLDSCode.SUCCESS, mResourceLoader.initializeLDS());
     }
 
     @Test
@@ -112,14 +112,14 @@ public class DatabaseLoaderTest extends TestBase {
         when(mAssetManager.readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME)).thenReturn(REGISTRY_JSON);
         DiscoveryManager discoveryManager = Mockito.spy(new DiscoveryManager(mNotifier));
         when(discoveryManager.load(REGISTRY_JSON)).thenReturn(true);
-        mDatabaseLoader = Mockito.spy(new DatabaseLoader(appContext, mAssetManager, discoveryManager, DatabaseLoader.InitLDSCode.RECOVERY));
-        assertEquals(DatabaseLoader.InitLDSCode.FAILURE, mDatabaseLoader.initializeLDS());
+        mResourceLoader = Mockito.spy(new ResourceLoader(appContext, mAssetManager, discoveryManager, ResourceLoader.InitLDSCode.RECOVERY));
+        assertEquals(ResourceLoader.InitLDSCode.FAILURE, mResourceLoader.initializeLDS());
     }
 
     @Test
     public void testLoadFailure1() {
         when(mAssetManager.readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME)).thenReturn("corrupt lds");
-        UStatusException uStatusException = assertThrows(UStatusException.class, () -> mDatabaseLoader.initializeLDS());
+        UStatusException uStatusException = assertThrows(UStatusException.class, () -> mResourceLoader.initializeLDS());
         assertEquals(UCode.FAILED_PRECONDITION, uStatusException.getCode());
         verify(mAssetManager, times(1)).readFileFromInternalStorage(appContext, Constants.LDS_DB_FILENAME);
     }

@@ -32,6 +32,7 @@ import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.parseAuthorit
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.toLongUri;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import org.eclipse.uprotocol.core.udiscovery.v3.Node;
 import org.eclipse.uprotocol.v1.UAuthority;
@@ -47,7 +48,7 @@ import org.robolectric.shadows.ShadowLog;
 import java.util.List;
 
 @RunWith(RobolectricTestRunner.class)
-public class DatabaseLoaderTest {
+public class ResourceLoaderTest {
     private String nameShort = "a";
     private String nameMedium = "ab";
     private String nameLong = "abc";
@@ -128,4 +129,5 @@ public class DatabaseLoaderTest {
         List<Node.Builder> path = DatabaseLoader.FindPathToNode(parent, uri);
         assertFalse(path.isEmpty());
     }
+
 }

@@ -41,7 +41,7 @@ import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.udiscovery.db.DiscoveryManager;
 
-public class DatabaseLoader {
+public class ResourceLoader {
     private static final String TAG = tag(SERVICE.getName());
 
     protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
@@ -52,7 +52,7 @@ public class DatabaseLoader {
     @VisibleForTesting
     private InitLDSCode mCode;
 
-    public DatabaseLoader(Context context, AssetManager au, DiscoveryManager mgr) {
+    public ResourceLoader(Context context, AssetManager au, DiscoveryManager mgr) {
         mContext = context;
         mAssetManager = au;
         mDiscoveryMgr = mgr;
@@ -60,7 +60,7 @@ public class DatabaseLoader {
     }
 
     @VisibleForTesting
-    DatabaseLoader(Context context, AssetManager au, DiscoveryManager mgr, InitLDSCode code) {
+    ResourceLoader(Context context, AssetManager au, DiscoveryManager mgr, InitLDSCode code) {
         mContext = context;
         mAssetManager = au;
         mDiscoveryMgr = mgr;

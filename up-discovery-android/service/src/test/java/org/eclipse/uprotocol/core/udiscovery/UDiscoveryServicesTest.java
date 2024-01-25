@@ -29,7 +29,6 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
-import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.DEBUG;
 import static org.eclipse.uprotocol.core.udiscovery.UDiscoveryService.TOPIC_NODE_NOTIFICATION;
 import static org.eclipse.uprotocol.core.udiscovery.common.Constants.UNEXPECTED_PAYLOAD;
 import static org.eclipse.uprotocol.core.udiscovery.db.JsonNodeTest.REGISTRY_JSON;
@@ -152,7 +151,7 @@ public class UDiscoveryServicesTest extends TestBase {
     @Mock
     private ConnectivityManager mConnectivityMgr;
     @Mock
-    private DatabaseLoader mDatabaseLoader;
+    private ResourceLoader mResourceLoader;
     private Context mContext;
 
 
@@ -231,7 +230,7 @@ public class UDiscoveryServicesTest extends TestBase {
 
         CompletableFuture<UStatus> response = CompletableFuture.completedFuture(STATUS_OK);
         when(mUpClient.connect()).thenReturn(response);
-        when(mDatabaseLoader.initializeLDS()).thenReturn(DatabaseLoader.InitLDSCode.SUCCESS);
+        when(mResourceLoader.initializeLDS()).thenReturn(ResourceLoader.InitLDSCode.SUCCESS);
         when(mUpClient.isConnected()).thenReturn(true);
 
         UStatus okStatus = buildStatus(UCode.OK, "OK");
@@ -247,7 +246,7 @@ public class UDiscoveryServicesTest extends TestBase {
                 thenReturn(responseCreateTopicException);
 
         mContext = InstrumentationRegistry.getInstrumentation().getContext();
-        mService = new UDiscoveryService(mContext, mRpcHandler, mUpClient, mDatabaseLoader,
+        mService = new UDiscoveryService(mContext, mRpcHandler, mUpClient, mResourceLoader,
                 mConnectivityMgr);
         mService.setNetworkStatus(true);
 
@@ -276,7 +275,7 @@ public class UDiscoveryServicesTest extends TestBase {
         when(mockLink.connect()).thenReturn(connectFut);
         boolean bException = false;
         try {
-            new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mConnectivityMgr);
+            new UDiscoveryService(mContext, mRpcHandler, mockLink, mResourceLoader, mConnectivityMgr);
         } catch (CompletionException e) {
             bException = true;
             Log.e(TAG, join(Key.MESSAGE, "negative_ulink_connect_exception", Key.FAILURE), e);
@@ -293,7 +292,7 @@ public class UDiscoveryServicesTest extends TestBase {
         when(mockLink.connect()).thenReturn(connectFut);
         when(mockLink.isConnected()).thenReturn(false);
 
-        new UDiscoveryService(mContext, mRpcHandler, mockLink, mDatabaseLoader, mConnectivityMgr);
+        new UDiscoveryService(mContext, mRpcHandler, mockLink, mResourceLoader, mConnectivityMgr);
 
         verify(mockLink, never()).registerRpcListener(any(UUri.class),
                 any(URpcListener.class));
@@ -303,8 +302,8 @@ public class UDiscoveryServicesTest extends TestBase {
     @Test
     public void negative_handler_uninitialized_exception() throws InterruptedException {
         setLogLevel(Log.DEBUG);
-        DatabaseLoader mockLoader = mock(DatabaseLoader.class);
-        when(mockLoader.initializeLDS()).thenReturn(DatabaseLoader.InitLDSCode.FAILURE);
+        ResourceLoader mockLoader = mock(ResourceLoader.class);
+        when(mockLoader.initializeLDS()).thenReturn(ResourceLoader.InitLDSCode.FAILURE);
         new UDiscoveryService(mContext, mRpcHandler, mUpClient, mockLoader, mConnectivityMgr);
 
         // sleep to ensure registerAllMethods completes in the async thread before the verify
@@ -346,7 +345,7 @@ public class UDiscoveryServicesTest extends TestBase {
         when(mUpClient.registerRpcListener(any(UUri.class),
                 any(URpcListener.class))).thenReturn(mFailedStatus);
 
-        new UDiscoveryService(mContext, mRpcHandler, mUpClient, mDatabaseLoader, mConnectivityMgr);
+        new UDiscoveryService(mContext, mRpcHandler, mUpClient, mResourceLoader, mConnectivityMgr);
         // wait for register async tasks to complete
         Thread.sleep(100);
         verify(mUpClient, atLeastOnce()).registerRpcListener(any(UUri.class),

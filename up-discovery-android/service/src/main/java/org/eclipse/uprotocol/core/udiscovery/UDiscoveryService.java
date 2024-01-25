@@ -30,7 +30,6 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
-import static org.eclipse.uprotocol.common.util.log.Formatter.status;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.udiscovery.internal.Utils.logStatus;
@@ -106,7 +105,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
     };
     private final AtomicBoolean mDatabaseInitialized = new AtomicBoolean(false);
     private RPCHandler mRpcHandler;
-    private DatabaseLoader mDatabaseLoader;
+    private ResourceLoader mResourceLoader;
     private UPClient mUpClient;
     private ConnectivityManager mConnectivityManager;
     private CompletableFuture<Boolean> mNetworkAvailableFuture = new CompletableFuture<>();
@@ -119,10 +118,10 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
 
     @VisibleForTesting
     UDiscoveryService(Context context, RPCHandler rpcHandler, UPClient upClient,
-                      DatabaseLoader dbLoader, ConnectivityManager connectivityMgr) {
+                      ResourceLoader resourceLoader, ConnectivityManager connectivityMgr) {
         mRpcHandler = rpcHandler;
         mUpClient = upClient;
-        mDatabaseLoader = dbLoader;
+        mResourceLoader = resourceLoader;
         mConnectivityManager = connectivityMgr;
         ulinkInit().join();
     }
@@ -164,7 +163,7 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
         Notifier notifier = new Notifier(observerManager, mUpClient);
         DiscoveryManager discoveryManager = new DiscoveryManager(notifier);
         AssetManager assetManager = new AssetManager();
-        mDatabaseLoader = new DatabaseLoader(this, assetManager, discoveryManager);
+        mResourceLoader = new ResourceLoader(this, assetManager, discoveryManager);
         mRpcHandler = new RPCHandler(this, assetManager, discoveryManager, observerManager);
         mConnectivityManager = this.getSystemService(ConnectivityManager.class);
         registerNetworkCallback();
@@ -200,8 +199,8 @@ public class UDiscoveryService extends Service implements NetworkStatusInterface
                             CompletableFuture.completedFuture(status) :
                             CompletableFuture.failedFuture(new UStatusException(status));
                 }).thenRunAsync(() -> {
-                    DatabaseLoader.InitLDSCode code = mDatabaseLoader.initializeLDS();
-                    boolean isInitialized = (code != DatabaseLoader.InitLDSCode.FAILURE);
+                    ResourceLoader.InitLDSCode code = mResourceLoader.initializeLDS();
+                    boolean isInitialized = (code != ResourceLoader.InitLDSCode.FAILURE);
                     mDatabaseInitialized.set(isInitialized);
                     if (mUpClient.isConnected()) {
                         registerAllMethods();
