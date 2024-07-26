@@ -23,17 +23,28 @@
  */
 package org.eclipse.uprotocol.core.usubscription.database
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+import org.eclipse.uprotocol.common.util.log.Formatter.stringify
+import org.eclipse.uprotocol.core.TestBase
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State
+import org.eclipse.uprotocol.v1.UUID
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
-@Entity(tableName = TopicsRecord.TABLE_NAME)
-class TopicsRecord(
-    @PrimaryKey val topic: String,
-    val publisher: String,
-    val topicDetails: String,
-    val isRegisterForNotification: Boolean
-) {
-    companion object {
-        const val TABLE_NAME = "topics"
+@RunWith(RobolectricTestRunner::class)
+class SubscriptionRecordTest : TestBase() {
+    @Test
+    fun testDefault() {
+        val subscription = SubscriptionRecord(topic = RESOURCE_URI)
+        assertEquals(RESOURCE_URI, subscription.topic)
+        assertEquals(State.UNSUBSCRIBED, subscription.state)
+        assertEquals(UUID.getDefaultInstance(), subscription.requestId)
+    }
+
+    @Test
+    fun testToString() {
+        assertEquals("[topic: /50/1/8000, state: SUBSCRIBED, requestId: " +
+                stringify(ID) + "]", SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID).toString())
     }
 }

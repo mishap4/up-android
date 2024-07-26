@@ -21,7 +21,6 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
 import android.content.Context
@@ -29,22 +28,25 @@ import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import org.eclipse.uprotocol.common.util.log.Formatter
 import org.eclipse.uprotocol.common.util.log.Key
 import org.eclipse.uprotocol.core.usubscription.USubscription
 
 @Database(
-    entities = [TopicsRecord::class, SubscribersRecord::class, SubscriptionsRecord::class],
+    entities = [ObserverRecord::class, SubscriberRecord::class, SubscriptionRecord::class],
     version = 1,
     exportSchema = true
 )
+@TypeConverters(DatabaseConverters::class)
 abstract class SubscriptionDatabase : RoomDatabase() {
-    abstract fun topicsDao(): TopicsDao
-    abstract fun subscribersDao(): SubscribersDao
-    abstract fun subscriptionDao(): SubscriptionDao
+    abstract fun getSubscribersDao(): SubscribersDao
+    abstract fun getSubscriptionsDao(): SubscriptionsDao
+    abstract fun getObserversDao(): ObserversDao
 
     companion object {
-        private val TAG = Formatter.tag(USubscription.SERVICE.name)
+        @JvmField val TAG: String = Formatter.tag(USubscription.NAME)
+        const val NAME: String = "subscriptions.db"
 
         @Volatile
         private var INSTANCE: SubscriptionDatabase? = null
@@ -55,9 +57,10 @@ abstract class SubscriptionDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     appContext,
                     SubscriptionDatabase::class.java,
-                    "subscriptionDb.db"
+                    NAME
                 )
                     .allowMainThreadQueries()
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

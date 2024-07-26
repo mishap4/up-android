@@ -26,90 +26,65 @@ package org.eclipse.uprotocol.core.ubus;
 import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 
+import org.eclipse.uprotocol.core.usubscription.SubscriptionData;
 import org.eclipse.uprotocol.core.usubscription.USubscription;
-import org.eclipse.uprotocol.uri.validator.UriValidator;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 class SubscriptionCache {
-    private final Map<UUri, Set<UUri>> mSubscribersByTopic = new ConcurrentHashMap<>();
-    private final Map<UUri, UUri> mPublisherByTopic = new ConcurrentHashMap<>();
+    private final Map<UUri, Set<SubscriptionData>> mSubscriptionsByTopic = new ConcurrentHashMap<>();
     private USubscription mService;
 
     public void setService(USubscription service) {
         mService = service;
     }
 
-    public @NonNull Set<UUri> getSubscribers(@NonNull UUri topic) {
-        return mSubscribersByTopic.computeIfAbsent(topic, key -> {
+    protected @NonNull Set<SubscriptionData> getSubscriptions(@NonNull UUri topic) {
+        return mSubscriptionsByTopic.computeIfAbsent(topic, key -> {
             final USubscription service = mService;
             return (service != null) ?
-                    emptyIfNull(service.getSubscribers(topic)).stream()
+                    emptyIfNull(service.getSubscriptions(topic)).stream()
                             .collect(Collectors.toCollection(ConcurrentHashMap::newKeySet)) :
                     ConcurrentHashMap.newKeySet();
         });
     }
 
-    public boolean addSubscriber(@NonNull UUri topic, @NonNull UUri clientUri) {
-        return getSubscribers(topic).add(clientUri);
+    private static <E> boolean addOrReplace(@NonNull Set<E> set, @NonNull E element) {
+        set.remove(element);
+        return set.add(element);
     }
 
-    public boolean removeSubscriber(@NonNull UUri topic, @NonNull UUri clientUri) {
-        return getSubscribers(topic).remove(clientUri);
+    public boolean addSubscription(@NonNull SubscriptionData subscription) {
+        return addOrReplace(getSubscriptions(subscription.topic()), subscription);
     }
 
-    public boolean isTopicSubscribed(@NonNull UUri topic, @NonNull UUri clientUri) {
-        return getSubscribers(topic).contains(clientUri);
+    public boolean removeSubscription(@NonNull SubscriptionData subscription) {
+        return getSubscriptions(subscription.topic()).remove(subscription);
     }
 
-    public @NonNull Set<UUri> getSubscribedTopics() {
-        return mSubscribersByTopic.entrySet().stream()
+    public boolean isTopicSubscribed(@NonNull UUri topic, @NonNull UUri subscriber) {
+        return getSubscriptions(topic).contains(new SubscriptionData(topic, subscriber));
+    }
+
+    @VisibleForTesting
+    @NonNull Set<UUri> getSubscribedTopics() {
+        return mSubscriptionsByTopic.entrySet().stream()
                 .filter(entry -> !entry.getValue().isEmpty())
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toSet());
     }
 
-    public @NonNull UUri getPublisher(@NonNull UUri topic) {
-        return mPublisherByTopic.computeIfAbsent(topic, key -> {
-            final USubscription service = mService;
-            return (service != null) ? service.getPublisher(topic) : UUri.getDefaultInstance();
-        });
-    }
-
-    public boolean addTopic(@NonNull UUri topic, @NonNull UUri clientUri) {
-        final UUri oldClientUri = mPublisherByTopic.put(topic, clientUri);
-        return !Objects.equals(oldClientUri, clientUri);
-    }
-
-    public boolean removeTopic(@NonNull UUri topic) {
-        mSubscribersByTopic.remove(topic);
-        final UUri oldClientUri = mPublisherByTopic.put(topic, UUri.getDefaultInstance()); // Do not remove mapping
-        return oldClientUri != null && !UriValidator.isEmpty(oldClientUri);
-    }
-
-    public boolean isTopicCreated(@NonNull UUri topic, @NonNull UUri clientUri) {
-        return getPublisher(topic).equals(clientUri);
-    }
-
-    public @NonNull Set<UUri> getCreatedTopics() {
-        return mPublisherByTopic.entrySet().stream()
-                .filter(entry -> !UriValidator.isEmpty(entry.getValue()))
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toSet());
-    }
-
     public void clear() {
-        mSubscribersByTopic.clear();
-        mPublisherByTopic.clear();
+        mSubscriptionsByTopic.clear();
     }
 
     public boolean isEmpty() {
-        return mSubscribersByTopic.isEmpty() && mPublisherByTopic.isEmpty();
+        return mSubscriptionsByTopic.isEmpty();
     }
 }

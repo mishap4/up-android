@@ -21,37 +21,30 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
+import org.eclipse.uprotocol.common.util.log.Formatter.joinGrouped
+import org.eclipse.uprotocol.common.util.log.Formatter.stringify
+import org.eclipse.uprotocol.common.util.log.Key
+import org.eclipse.uprotocol.v1.UUID
+import org.eclipse.uprotocol.v1.UUri
 
-@Entity(tableName = SubscribersRecord.TABLE_NAME)
-class SubscribersRecord() {
-    @PrimaryKey(autoGenerate = true)
-    var id: Int = 0
-    var topicUri: String? = null
-    var subscriberUri: String? = null
-    var subscriberDetails: String? = null
-    var subscriptionExpiryTime: String? = null
-    var requestId: String? = null
-
-    constructor(
-        topicUri: String,
-        subscriberURI: String,
-        subscriberDetails: String,
-        subscriptionExpiryTime: String,
-        requestId: String?
-    ) : this() {
-        this.topicUri = topicUri
-        this.subscriberUri = subscriberURI
-        this.subscriberDetails = subscriberDetails
-        this.subscriptionExpiryTime = subscriptionExpiryTime
-        this.requestId = requestId
-    }
-
+@Entity(tableName = SubscriberRecord.TABLE_NAME, primaryKeys = ["topic", "subscriber"])
+data class SubscriberRecord @JvmOverloads constructor(
+    val topic: UUri,
+    val subscriber: UUri,
+    val expiryTime: Long = 0,
+    val samplingPeriod: Int = 0,
+    val packageName: String = "",
+    val requestId: UUID = UUID.getDefaultInstance()
+) {
     companion object {
         const val TABLE_NAME = "subscribers"
+    }
+
+    override fun toString(): String {
+        return joinGrouped(Key.TOPIC, stringify(topic), Key.SUBSCRIBER, stringify(subscriber),
+            Key.EXPIRY, expiryTime, Key.PERIOD, samplingPeriod, Key.PACKAGE, packageName, Key.REQUEST_ID, stringify(requestId))
     }
 }

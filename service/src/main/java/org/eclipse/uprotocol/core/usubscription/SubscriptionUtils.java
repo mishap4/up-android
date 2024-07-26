@@ -21,134 +21,90 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription;
 
-import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
+import static com.google.protobuf.util.Timestamps.fromMillis;
+import static com.google.protobuf.util.Timestamps.toMillis;
+
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
-import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
+import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
+import static org.eclipse.uprotocol.common.util.log.Formatter.status;
+import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.removeAuthority;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.logStatus;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.TAG;
 
 import android.util.Log;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.room.TypeConverter;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonDeserializationContext;
-import com.google.gson.JsonDeserializer;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParseException;
-import com.google.gson.reflect.TypeToken;
-import com.google.protobuf.Any;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
-
-import org.eclipse.uprotocol.common.UStatusException;
+import org.eclipse.uprotocol.core.usubscription.database.SubscriberRecord;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscribeAttributes;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
+import org.eclipse.uprotocol.core.usubscription.v3.Subscription;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionRequest;
-import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
 import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.Update;
-import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
-import org.eclipse.uprotocol.v1.UAuthority;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
-import org.eclipse.uprotocol.v1.UResource;
-import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 
-import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
-
-@SuppressWarnings("java:S1200")
 public class SubscriptionUtils {
-    private static final Type GSON_TYPE_STRING_LIST = new TypeToken<List<Any>>() {}.getType();
-    private static final Gson sGson = new GsonBuilder()
-            .registerTypeAdapter(Any.class, new AnyDeserializerFromJson())
-            .create();
-
-    private static final LongUriSerializer serializer = LongUriSerializer.instance();
-
-    static class AnyDeserializerFromJson implements JsonDeserializer<Any> {
-        @Override
-        public Any deserialize(@NonNull JsonElement jElement, Type typeOfT, JsonDeserializationContext context)
-                throws JsonParseException {
-            try {
-                return Any.parseFrom(ByteString.copyFromUtf8(jElement.getAsString()));
-            } catch (InvalidProtocolBufferException e) {
-                logStatus(Log.ERROR, "deserialize", toStatus(e));
-                return null;
-            }
-        }
-    }
-
     private SubscriptionUtils() {}
 
-    protected static @NonNull UUri buildUri(UAuthority authority, UEntity entity, UResource resource) {
-        final UUri.Builder builder = UUri.newBuilder();
-        if (authority != null) {
-            builder.setAuthority(authority);
+    public static void checkSameEntity(@NonNull UUri uri1, @NonNull UUri uri2) {
+        checkArgument(uri1.getUeId() == uri2.getUeId(), UCode.PERMISSION_DENIED,
+                stringify(uri1) + " doesn't match to " + stringify(uri2));
+    }
+
+    public static @NonNull SubscriberInfo buildSubscriber(@NonNull UUri subscriber) {
+        return SubscriberInfo.newBuilder()
+                .setUri(subscriber)
+                .build();
+    }
+
+    public static @NonNull Update buildUpdate(@NonNull UUri topic, @NonNull UUri subscriber,
+            @NonNull SubscribeAttributes attributes, @NonNull SubscriptionStatus status) {
+        return Update.newBuilder()
+                .setTopic(topic)
+                .setSubscriber(buildSubscriber(subscriber))
+                .setAttributes(attributes)
+                .setStatus(status)
+                .build();
+    }
+
+    public static @NonNull SubscriptionStatus buildSubscriptionStatus(@NonNull State state) {
+        return SubscriptionStatus.newBuilder()
+                .setState(state)
+                .build();
+    }
+
+    public static @NonNull SubscribeAttributes buildSubscribeAttributes(@NonNull SubscriberRecord subscriberRecord) {
+        final SubscribeAttributes.Builder builder = SubscribeAttributes.newBuilder();
+        if (subscriberRecord.getExpiryTime() > 0) {
+            builder.setExpire(fromMillis(subscriberRecord.getExpiryTime()));
         }
-        if (entity != null) {
-            builder.setEntity(entity);
-        }
-        if (resource != null) {
-            builder.setResource(resource);
+        if (subscriberRecord.getSamplingPeriod() > 0) {
+            builder.setSamplePeriodMs(subscriberRecord.getSamplingPeriod());
         }
         return builder.build();
     }
 
-    public static @NonNull SubscriberInfo buildSubscriber(@NonNull String subscriber) {
-        return SubscriberInfo.newBuilder().setUri(serializer.deserialize(subscriber)).build();
+    public static @NonNull Subscription buildSubscription(@NonNull SubscriberRecord subscriberRecord, @NonNull State state) {
+        final Subscription.Builder builder = Subscription.newBuilder()
+                .setTopic(subscriberRecord.getTopic())
+                .setSubscriber(buildSubscriber(subscriberRecord.getSubscriber()))
+                .setStatus(buildSubscriptionStatus(state));
+        final SubscribeAttributes attributes = buildSubscribeAttributes(subscriberRecord);
+        if (attributes.hasExpire() || attributes.hasSamplePeriodMs()) {
+            builder.setAttributes(attributes);
+        }
+        return builder.build();
     }
 
-    public static @NonNull SubscriberInfo buildSubscriber(@NonNull String subscriber,
-                                                          @NonNull String subscriberDetails) {
-        final List<Any> details = convertToAnyList(subscriberDetails);
-        return SubscriberInfo.newBuilder().setUri(serializer.deserialize(subscriber)).addAllDetails(details).build();
-    }
-
-    public static @NonNull Update buildNotificationUpdate(@NonNull UUri topic, @NonNull SubscriberInfo subscriber,
-            @NonNull SubscribeAttributes attributes, @NonNull SubscriptionStatus subscriptionStatus) {
-        return Update.newBuilder()
-                .setTopic(topic)
-                .setSubscriber(subscriber)
-                .setAttributes(attributes)
-                .setStatus(subscriptionStatus)
-                .build();
-    }
-
-    public static @NonNull SubscriptionStatus buildSubscriptionStatus(@NonNull UCode code,
-                                                                      @NonNull SubscriptionStatus.State state,
-                                                                      @Nullable String message) {
-        return SubscriptionStatus.newBuilder()
-                .setCode(code)
-                .setState(state)
-                .setMessage(emptyIfNull(message))
-                .build();
-    }
-
-    public static @NonNull SubscriptionResponse buildSubscriptionResponse(
-            @NonNull SubscriptionStatus subscriptionStatus) {
-        return SubscriptionResponse.newBuilder().setStatus(subscriptionStatus).build();
-    }
-
-    public static @NonNull RequestData buildRequestData(@NonNull SubscriptionRequest request,
-                                                        boolean removeTopicAuthority) {
+    public static @NonNull RequestData buildRequestData(@NonNull SubscriptionRequest request, boolean removeTopicAuthority) {
         final UUri topic = request.getTopic();
         final UUri subscriber = request.getSubscriber().getUri();
-
-        checkArgument(!serializer.serialize(topic).isEmpty(), UCode.INVALID_ARGUMENT, "Topic is empty");
-        checkArgument(!serializer.serialize(subscriber).isEmpty(), UCode.INVALID_ARGUMENT, "Subscriber is empty");
-
         if (removeTopicAuthority) {
             return new RequestData(removeAuthority(topic), subscriber, request.getAttributes());
         } else {
@@ -156,14 +112,9 @@ public class SubscriptionUtils {
         }
     }
 
-    public static @NonNull RequestData buildRequestData(@NonNull UnsubscribeRequest request,
-                                                        boolean removeTopicAuthority) {
+    public static @NonNull RequestData buildRequestData(@NonNull UnsubscribeRequest request, boolean removeTopicAuthority) {
         final UUri topic = request.getTopic();
         final UUri subscriber = request.getSubscriber().getUri();
-
-        checkArgument(!serializer.serialize(topic).isEmpty(), UCode.INVALID_ARGUMENT, "Topic is empty");
-        checkArgument(!serializer.serialize(subscriber).isEmpty(), UCode.INVALID_ARGUMENT, "Subscriber is empty");
-
         if (removeTopicAuthority) {
             return new RequestData(removeAuthority(topic), subscriber, SubscribeAttributes.getDefaultInstance());
         } else {
@@ -171,45 +122,12 @@ public class SubscriptionUtils {
         }
     }
 
-    @TypeConverter
-    public static @NonNull String convertToString(@NonNull List<Any> details) {
-        final List<String> list = details.stream()
-                .filter(Objects::nonNull)
-                .map(it -> it.toByteString().toStringUtf8())
-                .collect(Collectors.toList());
-        return sGson.toJson(list, GSON_TYPE_STRING_LIST);
-    }
-
-    @TypeConverter
-    public static @NonNull List<Any> convertToAnyList(@NonNull String details) {
-        final List<Any> list = sGson.fromJson(details, GSON_TYPE_STRING_LIST);
-        return emptyIfNull(list).stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    @NonNull
-    public static UStatus toStatus(@NonNull Throwable throwable) {
-        if (throwable instanceof UStatusException statusException) {
-            return statusException.getStatus();
-        }
-        return buildStatus(UCode.INVALID_ARGUMENT, throwable.getMessage());
-    }
-
-    public static @NonNull SubscriptionResponse toSubscriptionResponse(Throwable throwable) {
-        if (throwable instanceof SubscriptionException subscriptionException) {
-            return buildSubscriptionResponse(subscriptionException.getStatus());
-        } else if (throwable instanceof UStatusException statusException) {
-            return buildSubscriptionResponse(buildSubscriptionStatus(
-                    statusException.getCode(),
-                    SubscriptionStatus.State.UNSUBSCRIBED,
-                    emptyIfNull(throwable.getMessage())));
-
-        } else {
-            return buildSubscriptionResponse(buildSubscriptionStatus(
-                    UCode.ABORTED,
-                    SubscriptionStatus.State.UNSUBSCRIBED,
-                    emptyIfNull(throwable.getMessage())));
+    public static long getExpiryTime(@NonNull SubscribeAttributes attributes) { // in milliseconds
+        try {
+            return attributes.hasExpire() ? toMillis(attributes.getExpire()) : 0;
+        } catch (Exception e) {
+            Log.e(TAG, status("getExpiryTime", toStatus(e)));
+            return 0;
         }
     }
 }

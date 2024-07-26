@@ -25,21 +25,13 @@ package org.eclipse.uprotocol.core.internal.util;
 
 import androidx.annotation.NonNull;
 
-import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.transport.builder.UAttributesBuilder;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.transport.validate.UAttributesValidator;
 import org.eclipse.uprotocol.uri.validator.UriValidator;
-import org.eclipse.uprotocol.uuid.factory.UuidUtils;
 import org.eclipse.uprotocol.v1.UAttributes;
-import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UPayload;
-import org.eclipse.uprotocol.v1.UPriority;
-import org.eclipse.uprotocol.v1.UUID;
 import org.eclipse.uprotocol.v1.UUri;
 import org.eclipse.uprotocol.validation.ValidationResult;
-
-import java.util.Optional;
 
 public interface UMessageUtils {
 
@@ -77,24 +69,6 @@ public interface UMessageUtils {
                 .setAttributes(UAttributes.newBuilder(message.getAttributes())
                         .clearSink()
                         .build())
-                .build();
-    }
-
-    static @NonNull UMessage addSinkIfEmpty(@NonNull UMessage message, @NonNull UUri sink) {
-        return UriValidator.isEmpty(message.getAttributes().getSink()) ? replaceSink(message, sink) : message;
-    }
-
-    static @NonNull UMessage buildResponseMessage(@NonNull UMessage requestMessage, @NonNull UPayload responsePayload) {
-        return UMessage.newBuilder()
-                .setAttributes(UAttributesBuilder.response(requestMessage.getAttributes()).build())
-                .setPayload(responsePayload)
-                .build();
-    }
-
-    /** NOTE: To be used only by dispatchers */
-    static @NonNull UMessage buildFailedResponseMessage(@NonNull UMessage requestMessage, @NonNull UCode code) {
-        return UMessage.newBuilder()
-                .setAttributes(UAttributesBuilder.response(requestMessage.getAttributes()).withCommStatus(code).build())
                 .build();
     }
 }

@@ -24,19 +24,19 @@
 package org.eclipse.uprotocol.core.ubus;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.buildFailedResponseMessage;
+import static org.eclipse.uprotocol.core.internal.util.UUriUtils.removeResource;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import static java.util.Objects.requireNonNull;
 
@@ -53,8 +53,8 @@ import org.eclipse.uprotocol.core.UCore;
 import org.eclipse.uprotocol.core.ubus.client.Client;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager;
 import org.eclipse.uprotocol.transport.UListener;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UUri;
 import org.junit.Before;
@@ -83,12 +83,12 @@ public class RpcHandlerTest extends TestBase {
         mClientManager = spy(new ClientManager(context));
         mDispatcher = spy(new Dispatcher(mRpcHandler));
         final UCore uCore = newMockUCoreBuilder(context)
-                .setUBus(new UBus(context, mClientManager, mDispatcher))
+                .setUBus(new UBus(context, mClientManager, mDispatcher, null))
                 .build();
         uCore.init();
 
-        mClient = registerNewClient(CLIENT);
-        mServer = registerNewClient(SERVICE);
+        mClient = registerNewClient(CLIENT_URI);
+        mServer = registerNewClient(SERVICE_URI);
     }
 
     private static void setLogLevel(int level) {
@@ -96,19 +96,19 @@ public class RpcHandlerTest extends TestBase {
         UBus.Component.VERBOSE = (level <= Log.VERBOSE);
     }
 
-    private @NonNull Client registerNewClient(@NonNull UEntity entity) {
-        return registerNewClient(entity, new Binder(), new MockListener());
+    private @NonNull Client registerNewClient(@NonNull UUri clientUri) {
+        return registerNewClient(clientUri, new Binder(), new MockListener());
     }
 
-    private <T> @NonNull Client registerNewClient(@NonNull UEntity entity, @NonNull IBinder clientToken, @NonNull T listener) {
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, entity, clientToken, listener));
+    private <T> @NonNull Client registerNewClient(@NonNull UUri clientUri, @NonNull IBinder clientToken, @NonNull T listener) {
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, clientUri, clientToken, listener));
         final Client client = mClientManager.getClient(clientToken);
         assertNotNull(client);
         return client;
     }
 
     private @NonNull Client registerNewServer(@NonNull UUri methodUri) {
-        final Client client = registerNewClient(methodUri.getEntity(), new Binder(), mock(UListener.class));
+        final Client client = registerNewClient(removeResource(methodUri), new Binder(), mock(UListener.class));
         assertNotNull(client);
         return registerServer(methodUri, client);
     }
@@ -122,7 +122,7 @@ public class RpcHandlerTest extends TestBase {
 
     @SuppressWarnings("UnusedReturnValue")
     private @NonNull Client registerRemoteServer(@NonNull IBinder clientToken) {
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_SERVER, clientToken, mock(UListener.class)));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_CLIENT_URI, clientToken, mock(UListener.class)));
         final Client client = mClientManager.getClient(clientToken);
         assertNotNull(client);
         return client;
@@ -153,7 +153,7 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testRegisterServerOtherRegistered() {
         registerServer(METHOD_URI, mServer);
-        final Client newServer = registerNewClient(SERVICE);
+        final Client newServer = registerNewClient(SERVICE_URI);
         assertStatus(UCode.ALREADY_EXISTS, mRpcHandler.registerServer(METHOD_URI, newServer));
         assertEquals(mServer, mRpcHandler.getServer(METHOD_URI));
     }
@@ -170,9 +170,8 @@ public class RpcHandlerTest extends TestBase {
     public void testRegisterServerNegative() {
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.registerServer(null, mServer));
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.registerServer(EMPTY_URI, mServer));
-        assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.registerServer(buildResponseUri(mServer.getUri()), mServer));
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.registerServer(METHOD_URI, null));
-        assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.registerServer(REMOTE_METHOD_URI, mServer));
+        assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.registerServer(METHOD_URI_REMOTE, mServer));
     }
 
     @Test
@@ -200,7 +199,7 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testUnregisterServerOtherRegistered() {
         registerServer(METHOD_URI, mServer);
-        final Client newServer = registerNewClient(SERVICE);
+        final Client newServer = registerNewClient(SERVICE_URI);
         assertStatus(UCode.NOT_FOUND, mRpcHandler.unregisterServer(METHOD_URI, newServer));
         assertEquals(mServer, mRpcHandler.getServer(METHOD_URI));
     }
@@ -228,29 +227,28 @@ public class RpcHandlerTest extends TestBase {
     public void testUnregisterServerNegative() {
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.unregisterServer(null, mServer));
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.unregisterServer(EMPTY_URI, mServer));
-        assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.unregisterServer(buildResponseUri(mServer.getUri()), mServer));
         assertStatus(UCode.INVALID_ARGUMENT, mRpcHandler.unregisterServer(METHOD_URI, null));
-        assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.unregisterServer(REMOTE_METHOD_URI, mServer));
+        assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.unregisterServer(METHOD_URI_REMOTE, mServer));
     }
 
     @Test
     public void testHandleRequestMessage() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
 
     @Test
     public void testHandleRequestMessageRemote() {
         registerRemoteServer(new Binder());
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, REMOTE_METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI_REMOTE, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
 
     @Test
     public void testHandleRequestMessageDuplicated() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
         assertStatus(UCode.ABORTED, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
@@ -258,28 +256,21 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testHandleRequestMessageUnauthenticated() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(buildResponseUri(CLIENT2_URI), METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT2_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
 
     @Test
     public void testHandleRequestMessageExpired() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI, 1);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, 1).build();
         sleep(DELAY_MS);
         assertStatus(UCode.DEADLINE_EXCEEDED, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
 
     @Test
-    public void testHandleRequestMessageTimeoutNotSet() {
-        registerRemoteServer(new Binder());
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, REMOTE_METHOD_URI, -1);
-        assertStatus(UCode.DEADLINE_EXCEEDED, mRpcHandler.handleRequestMessage(requestMessage, mClient));
-    }
-
-    @Test
     public void testHandleRequestMessageNoServer() {
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         sleep(DELAY_MS);
         assertStatus(UCode.UNAVAILABLE, mRpcHandler.handleRequestMessage(requestMessage, mClient));
     }
@@ -287,8 +278,8 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testHandleRequestMessageRetriedAfterDispatchFailure() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
-        when(mDispatcher.dispatchTo(requestMessage, mServer)).thenReturn(false);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
+        doReturn(false).when(mDispatcher).dispatchTo(requestMessage, mServer);
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
         verify(mDispatcher, times(1)).dispatchTo(requestMessage, mServer);
         // Retried once
@@ -298,13 +289,13 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testHandleRequestMessageSkipRetryWhenDispatched() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
-        when(mDispatcher.dispatchTo(requestMessage, mServer)).thenReturn(false);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
+        doReturn(false).when(mDispatcher).dispatchTo(requestMessage, mServer);
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
         verify(mDispatcher, times(1)).dispatchTo(requestMessage, mServer);
         assertStatus(UCode.OK, mRpcHandler.unregisterServer(METHOD_URI, mServer));
         // Server registered and ready to receive request
-        when(mDispatcher.dispatchTo(requestMessage, mServer)).thenReturn(true);
+        doReturn(true).when(mDispatcher).dispatchTo(requestMessage, mServer);
         registerServer(METHOD_URI, mServer);
         verify(mDispatcher, timeout(DELAY_LONG_MS + DELAY_MS).times(2)).dispatchTo(requestMessage, mServer);
     }
@@ -312,8 +303,8 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testHandleRequestMessageRetriedAfterServerRegistration() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI, 5000);
-        when(mDispatcher.dispatchTo(requestMessage, mServer)).thenReturn(false);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, 5000).build();
+        doReturn(false).when(mDispatcher).dispatchTo(requestMessage, mServer);
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
         verify(mDispatcher, timeout(DELAY_LONG_MS + DELAY_MS).times(2)).dispatchTo(requestMessage, mServer);
         assertStatus(UCode.OK, mRpcHandler.unregisterServer(METHOD_URI, mServer));
@@ -329,9 +320,9 @@ public class RpcHandlerTest extends TestBase {
     @Test
     public void testHandleResponseMessage() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
-        final UMessage responseMessage = buildResponseMessage(requestMessage);
+        final UMessage responseMessage = UMessageBuilder.response(requestMessage.getAttributes()).build();
         assertStatus(UCode.OK, mRpcHandler.handleResponseMessage(responseMessage, mServer));
     }
 
@@ -339,29 +330,19 @@ public class RpcHandlerTest extends TestBase {
     public void testHandleResponseMessageCommunicationFailure() {
         setLogLevel(Log.INFO);
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
-        final UMessage responseMessage = buildFailedResponseMessage(requestMessage, UCode.UNKNOWN);
+        final UMessage responseMessage = UMessageBuilder.response(requestMessage.getAttributes()).withCommStatus(UCode.UNKNOWN).build();
         assertStatus(UCode.OK, mRpcHandler.handleResponseMessage(responseMessage, mServer));
-    }
-
-    @Test
-    public void testHandleResponseMessageExpired() {
-        registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
-        assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
-        final UMessage responseMessage = buildResponseMessage(requestMessage, 1);
-        sleep(DELAY_MS);
-        assertStatus(UCode.DEADLINE_EXCEEDED, mRpcHandler.handleResponseMessage(responseMessage, mServer));
     }
 
     @Test
     public void testHandleResponseMessageWrongServer() {
         registerServer(METHOD_URI, mServer);
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
-        final Client newServer = registerNewClient(SERVICE2, new Binder(), new MockListener());
-        final UMessage responseMessage = buildResponseMessage(requestMessage);
+        final Client newServer = registerNewClient(SERVICE2_URI, new Binder(), new MockListener());
+        final UMessage responseMessage = UMessageBuilder.response(requestMessage.getAttributes()).build();
         assertStatus(UCode.UNAUTHENTICATED, mRpcHandler.handleResponseMessage(responseMessage, newServer));
     }
 
@@ -369,9 +350,9 @@ public class RpcHandlerTest extends TestBase {
     public void testHandleResponseMessageTimeout() {
         registerServer(METHOD_URI, mServer);
         final UListener listener = mock(UListener.class);
-        final Client client = registerNewClient(CLIENT, new Binder(), listener);
+        final Client client = registerNewClient(CLIENT_URI, new Binder(), listener);
 
-        final UMessage requestMessage = buildRequestMessage(buildResponseUri(client.getUri()), METHOD_URI, 100);
+        final UMessage requestMessage = UMessageBuilder.request(client.getUri(), METHOD_URI, 100).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, client));
         // Timeout response
         final ArgumentCaptor<UMessage> captor = ArgumentCaptor.forClass(UMessage.class);
@@ -388,15 +369,38 @@ public class RpcHandlerTest extends TestBase {
     public void testHandleResponseMessageAfterTimeout() {
         registerServer(METHOD_URI, mServer);
         final UListener listener = mock(UListener.class);
-        final Client client = registerNewClient(CLIENT, new Binder(), listener);
+        final Client client = registerNewClient(CLIENT_URI, new Binder(), listener);
 
-        final UMessage requestMessage = buildRequestMessage(buildResponseUri(client.getUri()), METHOD_URI, 100);
+        final UMessage requestMessage = UMessageBuilder.request(client.getUri(), METHOD_URI, 100).build();
         assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, client));
         // Timeout response
         verify(listener, timeout(200).times(1)).onReceive(any());
 
-        final UMessage responseMessage = buildResponseMessage(requestMessage);
+        final UMessage responseMessage = UMessageBuilder.response(requestMessage.getAttributes()).build();
         assertStatus(UCode.CANCELLED, mRpcHandler.handleResponseMessage(responseMessage, mServer));
+    }
+
+    @Test
+    public void testGetCaller() {
+        registerServer(METHOD_URI, mServer);
+        UMessage requestMessage = UMessageBuilder.request(mClient.getUri(), METHOD_URI, TTL).build();
+        assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
+        assertEquals(mClient, mRpcHandler.getCaller(requestMessage.getAttributes().getId()));
+    }
+
+    @Test
+    public void testGetCallerNotFound() {
+        assertNull(mRpcHandler.getCaller(ID));
+    }
+
+    @Test
+    public void testGetCallerDied() {
+        mClient = registerNewClient(CLIENT_URI, mock(Binder.class), new MockListener());
+        registerServer(METHOD_URI, mServer);
+        UMessage requestMessage = UMessageBuilder.request(mClient.getUri(), METHOD_URI, TTL).build();
+        assertStatus(UCode.OK, mRpcHandler.handleRequestMessage(requestMessage, mClient));
+        doReturn(false).when(mClient.getToken()).isBinderAlive();
+        assertNull(mRpcHandler.getCaller(requestMessage.getAttributes().getId()));
     }
 
     @Test
@@ -425,7 +429,7 @@ public class RpcHandlerTest extends TestBase {
     public void testDumpServer() {
         final Client server = registerNewServer(METHOD_URI);
         registerServer(METHOD2_URI, server);
-        final String output = dump("-s", stringify(server.getEntity()));
+        final String output = dump("-s", stringify(server.getUri()));
         assertTrue(output.contains(stringify(METHOD_URI)));
         assertTrue(output.contains(stringify(METHOD2_URI)));
     }

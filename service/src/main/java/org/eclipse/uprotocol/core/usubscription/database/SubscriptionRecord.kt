@@ -21,26 +21,28 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.eclipse.uprotocol.core.internal.util.log;
+package org.eclipse.uprotocol.core.usubscription.database
 
-import android.os.IBinder;
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import org.eclipse.uprotocol.common.util.log.Formatter.joinGrouped
+import org.eclipse.uprotocol.common.util.log.Formatter.stringify
+import org.eclipse.uprotocol.common.util.log.Key
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State
+import org.eclipse.uprotocol.v1.UUID
+import org.eclipse.uprotocol.v1.UUri
 
-import androidx.annotation.NonNull;
-
-import org.eclipse.uprotocol.common.util.log.Formatter;
-import org.eclipse.uprotocol.common.util.log.Key;
-import org.eclipse.uprotocol.core.usubscription.v3.Update;
-
-public interface FormatterExt {
-
-    static @NonNull String stringify(Update update) {
-        return (update != null) ? Formatter.joinGrouped(
-                Key.TOPIC, Formatter.stringify(update.getTopic()),
-                Key.SUBSCRIBER, Formatter.stringify(update.getSubscriber().getUri()),
-                Key.STATE, update.getStatus().getState()) : "";
+@Entity(tableName = SubscriptionRecord.TABLE_NAME)
+data class SubscriptionRecord(
+    @PrimaryKey var topic: UUri,
+    val state: State = State.UNSUBSCRIBED,
+    val requestId: UUID = UUID.getDefaultInstance()
+) {
+    companion object {
+        const val TABLE_NAME = "subscriptions"
     }
 
-    static @NonNull String stringify(IBinder binder) {
-        return (binder != null) ? Integer.toHexString(binder.hashCode()) : "";
+    override fun toString(): String {
+        return joinGrouped(Key.TOPIC, stringify(topic), Key.STATE, state.name, Key.REQUEST_ID, stringify(requestId))
     }
 }

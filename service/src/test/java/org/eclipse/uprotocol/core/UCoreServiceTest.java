@@ -23,8 +23,8 @@
  */
 package org.eclipse.uprotocol.core;
 
-import static org.eclipse.uprotocol.client.BuildConfig.LIBRARY_PACKAGE_NAME;
 import static org.eclipse.uprotocol.core.ubus.UBusManager.ACTION_BIND_UBUS;
+import static org.eclipse.uprotocol.transport.BuildConfig.LIBRARY_PACKAGE_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;

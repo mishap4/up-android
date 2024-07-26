@@ -23,9 +23,7 @@
  */
 package org.eclipse.uprotocol.core.ubus.client;
 
-import static org.eclipse.uprotocol.core.ubus.client.ClientManager.REMOTE_CLIENT_NAME;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -37,9 +35,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.transport.UListener;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UUri;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -58,25 +56,13 @@ public class InternalClientTest extends TestBase {
     }
 
     @Test
-    public void testIsRemote() {
-        final UUri clientUri = buildUri(null, buildEntity(REMOTE_CLIENT_NAME, 1), null);
-        final Client client = new InternalClient(new Credentials(PACKAGE_NAME, 0, 0, clientUri), mToken, mListener);
-        assertTrue(client.isRemote());
-    }
-
-    @Test
-    public void testIsInternal() {
-        assertTrue(mClient.isInternal());
-    }
-
-    @Test
     public void testGetListener() {
         assertEquals(mListener, mClient.getListener());
     }
 
     @Test
     public void testSend() {
-        final UMessage message = buildPublishMessage();
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         mClient.send(message);
         verify(mListener, times(1)).onReceive(message);
     }

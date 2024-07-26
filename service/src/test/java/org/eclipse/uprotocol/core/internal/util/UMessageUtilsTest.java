@@ -25,11 +25,11 @@ package org.eclipse.uprotocol.core.internal.util;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.eclipse.uprotocol.core.TestBase;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UAttributes;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
@@ -39,14 +39,15 @@ import org.junit.runner.RunWith;
 
 @RunWith(AndroidJUnit4.class)
 public class UMessageUtilsTest extends TestBase {
-
     @Test
     public void testCheckMessageValid() {
-        UMessage message = buildPublishMessage();
+        UMessage message = UMessageBuilder.publish(RESOURCE_URI).build(PAYLOAD);
         assertEquals(message, UMessageUtils.checkMessageValid(message));
-        message = buildRequestMessage();
+        message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI).build(PAYLOAD);
         assertEquals(message, UMessageUtils.checkMessageValid(message));
-        message = buildResponseMessage(message);
+        message = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build(PAYLOAD);
+        assertEquals(message, UMessageUtils.checkMessageValid(message));
+        message = UMessageBuilder.response(message.getAttributes()).build(PAYLOAD);
         assertEquals(message, UMessageUtils.checkMessageValid(message));
     }
 
@@ -61,7 +62,7 @@ public class UMessageUtilsTest extends TestBase {
 
     @Test
     public void testReplaceSource() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertEquals(RESOURCE_URI, message.getAttributes().getSource());
         final UMessage newMessage = UMessageUtils.replaceSource(message, RESOURCE2_URI);
         assertEquals(RESOURCE2_URI, newMessage.getAttributes().getSource());
@@ -69,7 +70,7 @@ public class UMessageUtilsTest extends TestBase {
 
     @Test
     public void testReplaceSink() {
-        final UMessage message = buildNotificationMessage(RESOURCE_URI, CLIENT_URI);
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI).build(PAYLOAD);
         assertEquals(CLIENT_URI, message.getAttributes().getSink());
         final UMessage newMessage = UMessageUtils.replaceSink(message, CLIENT2_URI);
         assertEquals(CLIENT2_URI, newMessage.getAttributes().getSink());
@@ -77,7 +78,7 @@ public class UMessageUtilsTest extends TestBase {
 
     @Test
     public void testReplaceSinkEmpty() {
-        final UMessage message = buildNotificationMessage(RESOURCE_URI, CLIENT_URI);
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI).build(PAYLOAD);
         assertEquals(CLIENT_URI, message.getAttributes().getSink());
         UMessage newMessage = UMessageUtils.replaceSink(message, EMPTY_URI);
         assertFalse(newMessage.getAttributes().hasSink());
@@ -87,43 +88,9 @@ public class UMessageUtilsTest extends TestBase {
 
     @Test
     public void testRemoveSink() {
-        final UMessage message = buildNotificationMessage(RESOURCE_URI, CLIENT_URI);
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI).build(PAYLOAD);
         assertEquals(CLIENT_URI, message.getAttributes().getSink());
         final UMessage newMessage = UMessageUtils.removeSink(message);
         assertFalse(newMessage.getAttributes().hasSink());
-    }
-
-    @Test
-    public void testAddSinkIfEmpty() {
-        final UMessage message = buildPublishMessage();
-        assertFalse(message.getAttributes().hasSink());
-        UMessage newMessage = UMessageUtils.addSinkIfEmpty(message, REMOTE_SERVER_URI);
-        assertEquals(REMOTE_SERVER_URI, newMessage.getAttributes().getSink());
-        newMessage = UMessageUtils.addSinkIfEmpty(newMessage, LOCAL_CLIENT2_URI);
-        assertEquals(REMOTE_SERVER_URI, newMessage.getAttributes().getSink());
-    }
-
-    @Test
-    public void testBuildResponseMessage() {
-        final UMessage requestMessage = buildRequestMessage();
-        final UMessage responseMessage = UMessageUtils.buildResponseMessage(requestMessage, PAYLOAD);
-        assertNotEquals(requestMessage.getAttributes().getId(), responseMessage.getAttributes().getId());
-        assertEquals(requestMessage.getAttributes().getSink(), responseMessage.getAttributes().getSource());
-        assertEquals(requestMessage.getAttributes().getSource(), responseMessage.getAttributes().getSink());
-        assertEquals(requestMessage.getAttributes().getId(), responseMessage.getAttributes().getReqid());
-        assertEquals(requestMessage.getAttributes().getPriority(), responseMessage.getAttributes().getPriority());
-        assertEquals(PAYLOAD, responseMessage.getPayload());
-    }
-
-    @Test
-    public void testBuildFailedResponseMessage() {
-        final UMessage requestMessage = buildRequestMessage();
-        final UMessage responseMessage = UMessageUtils.buildFailedResponseMessage(requestMessage, UCode.ABORTED);
-        assertNotEquals(requestMessage.getAttributes().getId(), responseMessage.getAttributes().getId());
-        assertEquals(requestMessage.getAttributes().getSink(), responseMessage.getAttributes().getSource());
-        assertEquals(requestMessage.getAttributes().getSource(), responseMessage.getAttributes().getSink());
-        assertEquals(requestMessage.getAttributes().getId(), responseMessage.getAttributes().getReqid());
-        assertEquals(requestMessage.getAttributes().getPriority(), responseMessage.getAttributes().getPriority());
-        assertEquals(UCode.ABORTED, responseMessage.getAttributes().getCommstatus());
     }
 }

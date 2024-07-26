@@ -5,7 +5,7 @@
 :source-highlighter: coderay
 
 == Overview
-This project includes the Android Binder implementation of uBus, serving as the https://github.com/eclipse-uprotocol/up-spec/blob/main/up-l2/dispatchers/README.adoc[Communication Layer] for uEs that utilize the https://github.com/eclipse-uprotocol/up-client-android-java/blob/main/README.adoc[Android uPClient], as well as implementations of the https://github.com/eclipse-uprotocol/up-spec/tree/main/up-l3/usubscription/v3/README.adoc[uSubscription] and https://github.com/eclipse-uprotocol/up-spec/tree/main/up-l3/utwin/v1/README.adoc[uTwin] core services.
+This project includes the Android Binder implementation of uBus, serving as the https://github.com/eclipse-uprotocol/up-spec/blob/main/up-l2/dispatchers/README.adoc[Communication Layer] for uEs that utilize the https://github.com/eclipse-uprotocol/up-transport-android-java/blob/main/README.adoc[Android uTransport], as well as implementations of the https://github.com/eclipse-uprotocol/up-spec/tree/main/up-l3/usubscription/v3/README.adoc[uSubscription] and https://github.com/eclipse-uprotocol/up-spec/tree/main/up-l3/utwin/v1/README.adoc[uTwin] core services.
 
 == Getting Started
 === Building the Project

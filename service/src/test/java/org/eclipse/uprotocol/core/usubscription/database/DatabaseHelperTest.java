@@ -21,7 +21,6 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database;
 
 import static org.junit.Assert.assertEquals;
@@ -37,239 +36,274 @@ import android.content.Context;
 import androidx.room.Room;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import org.eclipse.uprotocol.core.usubscription.SubscriptionTestBase;
-import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
+import com.google.common.collect.Sets;
+
+import org.eclipse.uprotocol.core.TestBase;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
+import org.eclipse.uprotocol.v1.UUri;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @RunWith(AndroidJUnit4.class)
-public class DatabaseHelperTest extends SubscriptionTestBase {
-    private DatabaseHelper mDbHelper;
+public class DatabaseHelperTest extends TestBase {
+    private DatabaseHelper mHelper;
     private SubscribersDao mSubscribersDao;
-    private SubscriptionDao mSubscriptionDao;
-    private TopicsDao mTopicsDao;
+    private SubscriptionsDao mSubscriptionsDao;
+    private ObserversDao mObserversDao;
     private Context mContext;
 
     @Before
     public void setUp() {
         mContext = spy(Context.class);
-        mDbHelper = new DatabaseHelper();
-        final SubscriptionDatabase mockDB = Room.inMemoryDatabaseBuilder(mContext,
-                SubscriptionDatabase.class).allowMainThreadQueries().build();
-        when(SubscriptionDatabaseKt.createDbExtension(mContext)).thenReturn(mockDB);
-        mDbHelper.init(mContext, mockDB);
-        mSubscribersDao = mockDB.subscribersDao();
-        mSubscriptionDao = mockDB.subscriptionDao();
-        mTopicsDao = mockDB.topicsDao();
+        mHelper = new DatabaseHelper();
+        final SubscriptionDatabase database = Room.inMemoryDatabaseBuilder(mContext, SubscriptionDatabase.class)
+                .allowMainThreadQueries()
+                .build();
+        when(SubscriptionDatabaseKt.createDbExtension(mContext)).thenReturn(database);
+        mHelper.init(database);
+        mSubscribersDao = database.getSubscribersDao();
+        mSubscriptionsDao = database.getSubscriptionsDao();
+        mObserversDao = database.getObserversDao();
+    }
+
+
+    @After
+    public void tearDown() {
+        mHelper.shutdown();
     }
 
     @Test
     public void testInit() {
-        mDbHelper.init(mContext);
-        assertNotNull(mDbHelper.mDatabase);
-    }
-
-    @Test
-    public void testIsTopicCreatedTrue() {
-        mTopicsDao.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertTrue(mDbHelper.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsTopicCreatedFalse() {
-        assertFalse(mDbHelper.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testAddTopic() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertTrue(mTopicsDao.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testUpdateTopic() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertFalse(mTopicsDao.isRegisteredForNotification(RESOURCE_URI));
-        mDbHelper.updateTopic(RESOURCE_URI, true);
-        assertTrue(mTopicsDao.isRegisteredForNotification(RESOURCE_URI));
-    }
-
-    @Test
-    public void testGetPublisher() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertEquals(TOPIC_PUBLISHER_DETAILS, mDbHelper.getPublisher(RESOURCE_URI));
-    }
-
-    @Test
-    public void testGetPublisherIfRegistered() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, true));
-        assertEquals(TOPIC_PUBLISHER_DETAILS, mDbHelper.getPublisherIfRegistered(RESOURCE_URI));
-    }
-
-    @Test
-    public void testGetPublisherIfRegisteredFalse() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertNull(mDbHelper.getPublisherIfRegistered(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsRegisteredForNotification() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, true));
-        assertTrue(mDbHelper.isRegisteredForNotification(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsRegisteredForNotificationFalse() {
-        mDbHelper.addTopic(newTopicsRecord(RESOURCE_URI, TOPIC_PUBLISHER_DETAILS, false));
-        assertFalse(mDbHelper.isRegisteredForNotification(RESOURCE_URI));
+        mHelper.init(mContext);
+        assertNotNull(mHelper.getDatabase());
     }
 
     @Test
     public void testAddSubscription() {
-        mDbHelper.addSubscription(newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID));
-        assertEquals(RESOURCE_URI, mSubscriptionDao.getTopic(REQUEST_ID));
+        assertEquals(1, mHelper.addSubscription(new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID)));
+        assertEquals(State.SUBSCRIBED, mSubscriptionsDao.getState(RESOURCE_URI));
     }
 
     @Test
-    @SuppressWarnings("DataFlowIssue")
-    public void testDeleteTopicFromSubscriptions() {
-        mDbHelper.addSubscription(newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID));
-        assertNotNull(mSubscriptionDao.getTopic(REQUEST_ID));
-        mDbHelper.deleteTopicFromSubscriptions(RESOURCE_URI);
-        assertNull(mSubscriptionDao.getTopic(REQUEST_ID));
+    public void testDeleteSubscription() {
+        mHelper.addSubscription(new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID));
+        assertEquals(1, mHelper.deleteSubscription(RESOURCE_URI));
+        assertNull(mSubscriptionsDao.getState(RESOURCE_URI));
     }
 
     @Test
     public void testGetSubscribedTopics() {
-        mSubscriptionDao.addSubscription(newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID));
-        assertEquals(mSubscriptionDao.getSubscribedTopics(), mDbHelper.getSubscribedTopics());
+        final Set<SubscriptionRecord> subscriptions = Set.of(
+                new SubscriptionRecord(RESOURCE_URI_REMOTE, State.SUBSCRIBE_PENDING, createId()),
+                new SubscriptionRecord(RESOURCE2_URI_REMOTE, State.UNSUBSCRIBE_PENDING, createId()),
+                new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, createId()),
+                new SubscriptionRecord(RESOURCE2_URI, State.UNSUBSCRIBED, createId())
+        );
+        final Set<UUri> subscribedTopics = subscriptions.stream()
+                .filter(it -> it.getState() == State.SUBSCRIBED || it.getState() == State.SUBSCRIBE_PENDING)
+                .map(SubscriptionRecord::getTopic)
+                .collect(Collectors.toSet());
+        subscriptions.forEach(mSubscriptionsDao::addSubscription);
+        assertEquals(subscribedTopics, Set.copyOf(mHelper.getSubscribedTopics()));
     }
 
     @Test
     public void testGetPendingTopics() {
-        mSubscriptionDao.addSubscription(
-                newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID, SubscriptionStatus.State.SUBSCRIBE_PENDING));
-        assertFalse(mDbHelper.getPendingTopics().isEmpty());
-    }
-
-    @Test
-    public void testUpdateState() {
-        mSubscriptionDao.addSubscription(newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID));
-        assertEquals(SubscriptionStatus.State.SUBSCRIBED.getNumber(),
-                mDbHelper.getSubscriptionState(RESOURCE_URI));
-        mDbHelper.updateState(RESOURCE_URI, SubscriptionStatus.State.UNSUBSCRIBED.getNumber());
-        assertEquals(SubscriptionStatus.State.UNSUBSCRIBED.getNumber(),
-                mDbHelper.getSubscriptionState(RESOURCE_URI));
-        mDbHelper.updateState(RESOURCE_URI, SubscriptionStatus.State.SUBSCRIBE_PENDING.getNumber());
-        assertEquals(SubscriptionStatus.State.SUBSCRIBE_PENDING.getNumber(),
-                mDbHelper.getSubscriptionState(RESOURCE_URI));
+        final Set<SubscriptionRecord> subscriptions = Set.of(
+                new SubscriptionRecord(RESOURCE_URI_REMOTE, State.SUBSCRIBE_PENDING, createId()),
+                new SubscriptionRecord(RESOURCE2_URI_REMOTE, State.UNSUBSCRIBE_PENDING, createId()),
+                new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, createId()),
+                new SubscriptionRecord(RESOURCE2_URI, State.UNSUBSCRIBED, createId())
+        );
+        final Set<SubscriptionRecord> pendingSubscriptions = subscriptions.stream()
+                .filter(it -> it.getState() == State.SUBSCRIBE_PENDING || it.getState() == State.UNSUBSCRIBE_PENDING)
+                .collect(Collectors.toSet());
+        subscriptions.forEach(mSubscriptionsDao::addSubscription);
+        assertEquals(pendingSubscriptions, Set.copyOf(mHelper.getPendingSubscriptions()));
     }
 
     @Test
     public void testGetSubscriptionState() {
-        mDbHelper.addSubscription(newSubscriptionsRecord(RESOURCE_URI, REQUEST_ID));
-        assertEquals(SubscriptionStatus.State.SUBSCRIBED.getNumber(),
-                mDbHelper.getSubscriptionState(RESOURCE_URI));
+        mHelper.addSubscription(new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID));
+        assertEquals(State.SUBSCRIBED, mHelper.getSubscriptionState(RESOURCE_URI));
     }
 
+    @Test
+    public void testGetSubscriptionStateNoRecord() {
+        assertEquals(State.UNSUBSCRIBED, mHelper.getSubscriptionState(RESOURCE2_URI));
+    }
+
+
+    @Test
+    public void testUpdateState() {
+        mHelper.addSubscription(new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID));
+        assertEquals(1, mHelper.updateSubscriptionState(RESOURCE_URI, State.UNSUBSCRIBE_PENDING));
+        assertEquals(State.UNSUBSCRIBE_PENDING, mHelper.getSubscriptionState(RESOURCE_URI));
+    }
+
+    @Test
+    public void testGetTopic() {
+        mHelper.addSubscription(new SubscriptionRecord(RESOURCE_URI, State.SUBSCRIBED, ID));
+        assertEquals(RESOURCE_URI, mHelper.getTopic(ID));
+    }
+
+    @Test
+    public void testGetTopicNoRecord() {
+        assertNull(mHelper.getTopic(createId()));
+    }
+    
     @Test
     public void testAddSubscriber() {
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(LOCAL_CLIENT_URI, mDbHelper.getFirstSubscriberForTopic(RESOURCE_URI).getSubscriberUri());
+        final SubscriberRecord subscriber = new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 1000, 100, PACKAGE_NAME, ID);
+        assertEquals(1, mHelper.addSubscriber(subscriber));
+        assertEquals(subscriber, mSubscribersDao.getSubscriber(RESOURCE_URI, CLIENT_URI));
     }
 
     @Test
-    public void testDeleteTopicFromSubscribers() {
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        assertFalse(mSubscribersDao.getSubscribers(RESOURCE_URI).isEmpty());
-        mDbHelper.deleteTopicFromSubscribers(RESOURCE_URI);
-        assertTrue(mSubscribersDao.getSubscribers(RESOURCE_URI).isEmpty());
+    public void testUpdateSubscriber() {
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 1000, 100, PACKAGE_NAME, ID));
+        final SubscriberRecord subscriber = new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, 10, PACKAGE_NAME, ID);
+        assertEquals(1, mHelper.updateSubscriber(subscriber));
+        assertEquals(subscriber, mSubscribersDao.getSubscriber(RESOURCE_URI, CLIENT_URI));
     }
 
     @Test
     public void testDeleteSubscriber() {
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT2_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(List.of(LOCAL_CLIENT_URI, LOCAL_CLIENT2_URI), mSubscribersDao.getSubscribers(RESOURCE_URI));
-        mDbHelper.deleteSubscriber(RESOURCE_URI, LOCAL_CLIENT_URI);
-        assertFalse(mSubscribersDao.getSubscribers(RESOURCE_URI).contains(LOCAL_CLIENT_URI));
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT_URI));
+        assertEquals(1, mHelper.deleteSubscriber(RESOURCE_URI, CLIENT_URI));
+        assertNull(mSubscribersDao.getSubscriber(RESOURCE_URI, CLIENT_URI));
+    }
+
+    @Test
+    public void testDeleteSubscribers() {
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT_URI));
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT2_URI));
+        assertEquals(2, mHelper.deleteSubscribers(RESOURCE_URI));
+        assertTrue(mSubscribersDao.getSubscribersByTopic(RESOURCE_URI).isEmpty());
     }
 
     @Test
     public void testGetSubscriber() {
-        final SubscribersRecord record = newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS);
-        mDbHelper.addSubscriber(record);
-        assertEquals(record.getTopicUri(), mDbHelper.getSubscriber(RESOURCE_URI, LOCAL_CLIENT_URI).getTopicUri());
+        final SubscriberRecord subscriber = new SubscriberRecord(RESOURCE_URI, CLIENT_URI);
+        mHelper.addSubscriber(subscriber);
+        assertEquals(subscriber, mHelper.getSubscriber(RESOURCE_URI, CLIENT_URI));
     }
 
     @Test
     public void testGetFirstSubscriberForTopic() {
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mDbHelper.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT2_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(LOCAL_CLIENT_URI, mDbHelper.getFirstSubscriberForTopic(RESOURCE_URI).getSubscriberUri());
+        final SubscriberRecord subscriber1 = new SubscriberRecord(RESOURCE_URI, CLIENT_URI);
+        final SubscriberRecord subscriber2 = new SubscriberRecord(RESOURCE_URI, CLIENT2_URI);
+        mHelper.addSubscriber(subscriber1);
+        mHelper.addSubscriber(subscriber2);
+        assertEquals(subscriber1, mHelper.getFirstSubscriberForTopic(RESOURCE_URI));
     }
 
     @Test
-    public void testGetSubscribersEmpty() {
-        assertTrue(mDbHelper.getSubscribers(RESOURCE_URI).isEmpty());
+    public void testGetSubscribersCount() {
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT_URI));
+        mHelper.addSubscriber(new SubscriberRecord(RESOURCE_URI, CLIENT2_URI));
+        assertEquals(2, mHelper.getSubscribersCount(RESOURCE_URI));
     }
 
     @Test
-    public void testGetSubscribers() {
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(List.of(LOCAL_CLIENT_URI), mDbHelper.getSubscribers(RESOURCE_URI));
+    public void testGetAllSubscribers() {
+        final Set<SubscriberRecord> subscribers = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI),
+                new SubscriberRecord(RESOURCE_URI, CLIENT2_URI)
+        );
+        subscribers.forEach(mHelper::addSubscriber);
+        assertEquals(subscribers, Set.copyOf(mHelper.getAllSubscribers()));
     }
 
     @Test
-    public void testGetAllSubscriberRecords() {
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mSubscribersDao.addSubscriber(newSubscribersRecord(REMOTE_RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT2_URI, SUBSCRIBERS_DETAILS));
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, REMOTE_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mSubscribersDao.addSubscriber(newSubscribersRecord(REMOTE_RESOURCE_URI, REMOTE_CLIENT_URI,
-                SUBSCRIBERS_DETAILS));
-        assertEquals(5, mDbHelper.getAllSubscriberRecords().size());
+    public void testGetSubscribersWithExpiryTime() {
+        final Set<SubscriberRecord> subscribers1 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 1000),
+                new SubscriberRecord(RESOURCE2_URI, CLIENT2_URI, 2000)
+        );
+        final Set<SubscriberRecord> subscribers2 = Set.of(
+                new SubscriberRecord(RESOURCE2_URI, CLIENT_URI)
+        );
+        Sets.union(subscribers1, subscribers2).forEach(subscriber -> mSubscribersDao.addSubscriber(subscriber));
+        assertEquals(subscribers1, Set.copyOf(mHelper.getSubscribersWithExpiryTime()));
     }
 
     @Test
-    public void testFetchSubscriptionsByTopic() {
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(RESOURCE_URI, mDbHelper.fetchSubscriptionsByTopic(RESOURCE_URI).get(0).getTopicUri());
-        assertEquals(SUBSCRIBERS_DETAILS, mDbHelper.fetchSubscriptionsByTopic(RESOURCE_URI).get(
-                0).getSubscriberDetails());
+    public void testGetSubscribersFromPackage() {
+        final Set<SubscriberRecord> subscribers1 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, 0, PACKAGE_NAME),
+                new SubscriberRecord(RESOURCE2_URI, CLIENT_URI, 0, 0, PACKAGE_NAME)
+        );
+        final Set<SubscriberRecord> subscribers2 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT2_URI)
+        );
+        Sets.union(subscribers1, subscribers2).forEach(subscriber -> mSubscribersDao.addSubscriber(subscriber));
+        assertEquals(subscribers1, Set.copyOf(mHelper.getSubscribersFromPackage(PACKAGE_NAME)));
     }
 
     @Test
-    public void testFetchSubscriptionsBySubscriber() {
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        mSubscribersDao.addSubscriber(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT2_URI, SUBSCRIBERS_DETAILS));
-        assertEquals(LOCAL_CLIENT_URI,
-                mDbHelper.fetchSubscriptionsBySubscriber(LOCAL_CLIENT_URI).get(0).getSubscriberUri());
-        assertEquals(LOCAL_CLIENT2_URI,
-                mDbHelper.fetchSubscriptionsBySubscriber(LOCAL_CLIENT2_URI).get(0).getSubscriberUri());
+    public void testGetSubscribersByTopic() {
+        final Set<SubscriberRecord> subscribers1 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI),
+                new SubscriberRecord(RESOURCE_URI, CLIENT2_URI)
+        );
+        final Set<SubscriberRecord> subscribers2 = Set.of(
+                new SubscriberRecord(RESOURCE2_URI, CLIENT_URI),
+                new SubscriberRecord(RESOURCE2_URI, CLIENT2_URI)
+        );
+        Sets.union(subscribers1, subscribers2).forEach(subscriber -> mSubscribersDao.addSubscriber(subscriber));
+        assertEquals(subscribers1, Set.copyOf(mHelper.getSubscribersByTopic(RESOURCE_URI)));
     }
 
     @Test
-    public void topicsDaoValid() {
-        assertNotNull(mDbHelper.topicsDao());
+    public void testGetSubscribersByUri() {
+        final Set<SubscriberRecord> subscribers1 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI),
+                new SubscriberRecord(RESOURCE2_URI, CLIENT_URI)
+        );
+        final Set<SubscriberRecord> subscribers2 = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT2_URI),
+                new SubscriberRecord(RESOURCE2_URI, CLIENT2_URI)
+        );
+        Sets.union(subscribers1, subscribers2).forEach(subscriber -> mSubscribersDao.addSubscriber(subscriber));
+        assertEquals(subscribers1, Set.copyOf(mHelper.getSubscribersByUri(CLIENT_URI)));
     }
 
     @Test
-    public void subscribersDaoValid() {
-        assertNotNull(mDbHelper.subscribersDao());
+    public void testGetSubscribedPackages() {
+        final Set<SubscriberRecord> subscribers = Set.of(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, 0, PACKAGE_NAME),
+                new SubscriberRecord(RESOURCE_URI, CLIENT2_URI, 0, 0, PACKAGE2_NAME)
+        );
+        final Set<String> packages = subscribers.stream()
+                .map(SubscriberRecord::getPackageName)
+                .collect(Collectors.toSet());
+        subscribers.forEach(subscriber -> mSubscribersDao.addSubscriber(subscriber));
+        assertEquals(packages, Set.copyOf(mHelper.getSubscribedPackages()));
     }
 
     @Test
-    public void subscriptionDaoValid() {
-        assertNotNull(mDbHelper.subscriptionDao());
+    public void testAddObserver() {
+        assertEquals(1, mHelper.addObserver(RESOURCE_URI));
+        assertTrue(mObserversDao.isObserved(RESOURCE_URI));
     }
 
-    @After
-    public void tearDown() {
-        mDbHelper.shutdown();
+    @Test
+    public void testDeleteObserver() {
+        mHelper.addObserver(new ObserverRecord(RESOURCE_URI));
+        assertEquals(1, mHelper.deleteObserver(RESOURCE_URI));
+        assertFalse(mObserversDao.isObserved(RESOURCE_URI));
+    }
+
+    @Test
+    public void testIsObserved() {
+        assertFalse(mHelper.isObserved(RESOURCE_URI));
+        mHelper.addObserver(new ObserverRecord(RESOURCE_URI));
+        assertTrue(mHelper.isObserved(RESOURCE_URI));
     }
 }

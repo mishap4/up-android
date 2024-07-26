@@ -25,312 +25,166 @@
 package org.eclipse.uprotocol.core.usubscription;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
-import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.CREATE_TOPIC;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.DEPRECATE_TOPIC;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.FETCH_SUBSCRIBERS;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.FETCH_SUBSCRIPTIONS;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.REGISTER_FOR_NOTIFICATIONS;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.SUBSCRIBE;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.UNREGISTER_FOR_NOTIFICATIONS;
-import static org.eclipse.uprotocol.core.usubscription.USubscription.Method.UNSUBSCRIBE;
+import static org.eclipse.uprotocol.communication.UPayload.packToAny;
+import static org.eclipse.uprotocol.communication.UPayload.unpack;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_FETCH_SUBSCRIBERS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_FETCH_SUBSCRIPTIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_SUBSCRIBE;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_UNSUBSCRIBE;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeast;
-import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
 
 import android.content.Context;
-import android.util.Log;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 
+import androidx.annotation.NonNull;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.core.UCore;
 import org.eclipse.uprotocol.core.ubus.UBus;
+import org.eclipse.uprotocol.core.ubus.client.Credentials;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.NotificationsRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.NotificationsResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
+import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.Update;
-import org.eclipse.uprotocol.v1.UAuthority;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
+import org.eclipse.uprotocol.v1.UAttributes;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UStatus;
-import org.eclipse.uprotocol.v1.UUri;
-import org.junit.After;
+import org.eclipse.uprotocol.v1.UMessageType;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
 
+import java.util.List;
 import java.util.Set;
 
 @RunWith(AndroidJUnit4.class)
-public class USubscriptionTest extends SubscriptionTestBase {
+public class USubscriptionTest extends TestBase {
     private final SubscriptionHandler mSubscriptionHandler = mock(SubscriptionHandler.class);
     private final SubscriptionListener mSubscriptionListener = mock(SubscriptionListener.class);
+    private final ExpiryMonitor mExpiryMonitor = mock(ExpiryMonitor.class);
+    private final UBus mUBus = mock(UBus.class);
+    private Context mContext;
     private USubscription mUSubscription;
     private UCore mUCore;
-    private UBus mUBus = mock(UBus.class);
 
     @Before
     public void setUp() {
-        final Context context = RuntimeEnvironment.getApplication();
-        mUSubscription = new USubscription(mSubscriptionHandler);
-        mUCore = newMockUCoreBuilder(context).setUBus(mUBus).setUSubscription(mUSubscription).build();
-        mUBus = mUCore.getUBus();
+        mContext = spy(RuntimeEnvironment.getApplication());
+        mUSubscription = new USubscription(mContext, mSubscriptionHandler, mExpiryMonitor);
+        mUCore = newMockUCoreBuilder(mContext)
+                .setUBus(mUBus)
+                .setUSubscription(mUSubscription)
+                .build();
         mUSubscription.registerListener(mSubscriptionListener);
-        when(mUCore.getUBus().registerClient(any(), any(), any())).thenReturn(STATUS_OK);
-        when(mUCore.getUBus().enableDispatching(any(), anyInt(), any())).thenReturn(STATUS_OK);
+        doReturn(STATUS_OK).when(mUBus).registerClient(any(), any(), any());
+        doReturn(STATUS_OK).when(mUBus).unregisterClient(any());
+        doReturn(STATUS_OK).when(mUBus).enableDispatching(any(), any());
+        doReturn(STATUS_OK).when(mUBus).disableDispatching(any(), any());
         mUSubscription.init(mUCore);
-        mUSubscription.startup();
+    }
+
+    private void verifyResponseSent(@NonNull UMessage requestMessage, @NonNull UCode code) {
+        final UAttributes requestAttributes = requestMessage.getAttributes();
+        verify(mUBus, timeout(DELAY_MS).times(1)).send(argThat(responseMessage -> {
+            final UAttributes responseAttributes = responseMessage.getAttributes();
+            return responseAttributes.getCommstatus() == code &&
+                   responseAttributes.getReqid().equals(requestAttributes.getId()) &&
+                   responseAttributes.getSource().equals(requestAttributes.getSink()) &&
+                   responseAttributes.getSink().equals(requestAttributes.getSource());
+        }), any());
     }
 
     @Test
     public void testInit() {
         verify(mSubscriptionHandler, times(1)).init(any());
+        verify(mExpiryMonitor, times(1)).init(any());
         verify(mUBus, times(1)).registerClient(eq(USubscription.SERVICE), any(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(SUBSCRIBE.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(UNSUBSCRIBE.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(CREATE_TOPIC.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(DEPRECATE_TOPIC.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(FETCH_SUBSCRIPTIONS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(FETCH_SUBSCRIBERS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(REGISTER_FOR_NOTIFICATIONS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).enableDispatching(eq(UNREGISTER_FOR_NOTIFICATIONS.localUri()), anyInt(), any());
-    }
-
-    @Test
-    public void testRegisterRpcListenerNotOK() {
-        when(mUBus.enableDispatching(any(), anyInt(), any())).thenReturn(buildStatus(UCode.INVALID_ARGUMENT));
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_SUBSCRIBE.equals(it.sink())), any());
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_UNSUBSCRIBE.equals(it.sink())), any());
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_FETCH_SUBSCRIPTIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_REGISTER_FOR_NOTIFICATIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_UNREGISTER_FOR_NOTIFICATIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).enableDispatching(argThat(it -> METHOD_FETCH_SUBSCRIBERS.equals(it.sink())), any());
+        verify(mContext, times(1)).registerReceiver(any(),
+                argThat(it -> it.hasAction(Intent.ACTION_PACKAGE_FULLY_REMOVED)), anyInt());
         mUSubscription.init(mUCore);
-        verify(mUBus, atLeast(8)).enableDispatching(any(), anyInt(), any());
+
     }
 
     @Test
-    public void testGetSubscribers() {
-        when(mSubscriptionHandler.getSubscribers(TestBase.RESOURCE_URI)).thenReturn(Set.of(TestBase.LOCAL_CLIENT_URI));
-        Set<UUri> subscribers = mUSubscription.getSubscribers(TestBase.RESOURCE_URI);
-        assertTrue(subscribers.contains(TestBase.LOCAL_CLIENT_URI));
-        verify(mSubscriptionHandler, times(1)).getSubscribers(any());
+    public void testInitReceiverRegistrationFailure() {
+        reset(mContext);
+        doThrow(new RuntimeException()).when(mContext).registerReceiver(any(), any(), anyInt());
+        mUSubscription.init(mUCore);
+        verify(mContext, times(1)).registerReceiver(any(),
+                argThat(it -> it.hasAction(Intent.ACTION_PACKAGE_FULLY_REMOVED)), anyInt());
     }
 
     @Test
-    public void testGetDeviceAuthority() {
-        when(mUCore.getUBus().getDeviceAuthority()).thenReturn(LOCAL_AUTHORITY);
-        assertEquals(LOCAL_AUTHORITY, mUSubscription.getDeviceAuthority());
+    public void testStartup() {
+        mUSubscription.startup();
+        verify(mSubscriptionHandler, times(1)).startup();
+        verify(mExpiryMonitor, times(1)).startup();
     }
 
     @Test
-    public void testGetDeviceAuthorityUnknown() {
-        when(mUCore.getUBus().getDeviceAuthority()).thenReturn(UAuthority.getDefaultInstance());
-        assertThrowsStatusException(UCode.FAILED_PRECONDITION, () -> mUSubscription.getDeviceAuthority());
+    public void testShutdown() {
+        mUSubscription.shutdown();
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_SUBSCRIBE.equals(it.sink())), any());
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_UNSUBSCRIBE.equals(it.sink())), any());
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_FETCH_SUBSCRIPTIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_REGISTER_FOR_NOTIFICATIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_UNREGISTER_FOR_NOTIFICATIONS.equals(it.sink())), any());
+        verify(mUBus, times(1)).disableDispatching(argThat(it -> METHOD_FETCH_SUBSCRIBERS.equals(it.sink())), any());
+        verify(mUBus, times(1)).unregisterClient(any());
+        verify(mSubscriptionHandler, times(1)).shutdown();
+        verify(mExpiryMonitor, times(1)).shutdown();
+        verify(mContext, times(1)).unregisterReceiver(any());
     }
 
     @Test
-    public void testHandleUnknownMessage() {
-        final UMessage message = buildPublishMessage();
-        mUSubscription.inject(message);
-        sleep(DELAY_MS);
-        verify(mSubscriptionHandler, times(1)).init(any());
-        verifyNoMoreInteractions(mSubscriptionHandler);
-    }
-
-    @Test
-    public void testHandleUnknownRequestMessage() {
-        final UMessage message = buildRequestMessage();
-        mUSubscription.inject(message);
-        sleep(DELAY_MS);
-        verify(mSubscriptionHandler, times(1)).init(any());
-        verifyNoMoreInteractions(mSubscriptionHandler);
-    }
-
-    @Test
-    public void testHandleRegisterForNotificationsRequestMessage() {
-        final UMessage requestMessage = buildRegisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.registerForNotifications(requestMessage)).thenReturn(STATUS_OK);
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).registerForNotifications(requestMessage);
-    }
-
-    @Test
-    public void testHandleRegisterForNotificationsRequestFailure() {
-        final UMessage requestMessage = buildRegisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.registerForNotifications(requestMessage))
-                .thenReturn(buildStatus(UCode.PERMISSION_DENIED));
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).registerForNotifications(requestMessage);
-    }
-
-    @Test
-    public void testHandleUnregisterForNotificationsRequestMessage() {
-        final UMessage requestMessage = buildUnregisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.unregisterForNotifications(requestMessage)).thenReturn(STATUS_OK);
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unregisterForNotifications(requestMessage);
-    }
-
-    @Test
-    public void testHandleUnregisterForNotificationsRequestFailure() {
-        final UMessage requestMessage = buildUnregisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.unregisterForNotifications(requestMessage))
-                .thenReturn(buildStatus(UCode.PERMISSION_DENIED));
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unregisterForNotifications(requestMessage);
-    }
-
-    @Test
-    public void testHandleCreateTopicRequestMessage() {
-        final UMessage requestMessage = buildCreateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.createTopic(requestMessage)).thenReturn(STATUS_OK);
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).createTopic(requestMessage);
-    }
-
-    @Test
-    public void testHandleCreateTopicRequestFailure() {
-        final UMessage requestMessage = buildCreateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.createTopic(requestMessage))
-                .thenReturn(buildStatus(UCode.PERMISSION_DENIED));
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).createTopic(requestMessage);
-    }
-
-    @Test
-    public void testHandleDeprecateTopicRequestMessage() {
-        final UMessage requestMessage = buildDeprecateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.deprecateTopic(requestMessage)).thenReturn(STATUS_OK);
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).deprecateTopic(requestMessage);
-    }
-
-    @Test
-    public void testHandleDeprecateTopicRequestFailure() {
-        final UMessage requestMessage = buildDeprecateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.deprecateTopic(requestMessage))
-                .thenReturn(buildStatus(UCode.PERMISSION_DENIED));
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).deprecateTopic(requestMessage);
-    }
-
-    @Test
-    public void testHandleSubscribeRequestMessage() {
-        final UMessage requestMessage = buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.subscribe(requestMessage)).thenReturn(SubscriptionResponse.getDefaultInstance());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_LONG_MS).times(1)).subscribe(requestMessage);
-    }
-
-    @Test
-    public void testHandleSubscribeRequestFailure() {
-        final UMessage requestMessage = buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.subscribe(requestMessage))
-                .thenReturn(SubscriptionResponse.newBuilder()
-                        .setStatus(buildSubscriptionStatus(State.UNSUBSCRIBED, UCode.NOT_FOUND))
-                        .build());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).subscribe(requestMessage);
-    }
-
-    @Test
-    public void testHandleUnsubscribeRequestMessage() {
-        final UMessage requestMessage = buildUnsubscribeMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.unsubscribe(requestMessage)).thenReturn(STATUS_OK);
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unsubscribe(requestMessage);
-    }
-
-    @Test
-    public void testHandleUnsubscribeRequestFailure() {
-        final UMessage requestMessage = buildUnsubscribeMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.unsubscribe(requestMessage)).thenReturn(buildStatus(UCode.PERMISSION_DENIED));
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unsubscribe(requestMessage);
-    }
-
-    @Test
-    public void testHandleFetchSubscriptionsRequestMessage() {
-        final UMessage requestMessage = buildFetchSubscriptionsByTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.fetchSubscriptions(requestMessage)).thenReturn(
-                FetchSubscriptionsResponse.getDefaultInstance());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscriptions(requestMessage);
-    }
-
-    @Test
-    public void testHandleFetchSubscriptionsRequestFailure() {
-        final UMessage requestMessage = buildFetchSubscriptionsByTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.fetchSubscriptions(requestMessage)).thenReturn(
-                FetchSubscriptionsResponse.newBuilder().setStatus(buildStatus(UCode.PERMISSION_DENIED)).build());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscriptions(requestMessage);
-    }
-
-    @Test
-    public void testHandleFetchSubscribersRequestMessage() {
-        final UMessage requestMessage = buildFetchSubscribersMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.fetchSubscribers(requestMessage)).thenReturn(
-                FetchSubscribersResponse.getDefaultInstance());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscribers(requestMessage);
-    }
-
-    @Test
-    public void testHandleFetchSubscribersRequestFailure() {
-        final UMessage requestMessage = buildFetchSubscribersMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        when(mSubscriptionHandler.fetchSubscribers(requestMessage)).thenReturn(
-                FetchSubscribersResponse.newBuilder().setStatus(buildStatus(UCode.PERMISSION_DENIED)).build());
-        mUSubscription.inject(requestMessage);
-        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscribers(requestMessage);
-    }
-
-    @Test
-    public void testGetPublisher() {
-        when(mSubscriptionHandler.getPublisher(any())).thenReturn(TestBase.RESOURCE_URI);
-        final UUri value = mUSubscription.getPublisher(TestBase.RESOURCE_URI);
-        assertEquals(TestBase.RESOURCE_URI, value);
-        verify(mSubscriptionHandler, times(1)).getPublisher(any());
-    }
-
-    @Test
-    public void testNotifySubscriptionChangedAndTopicCreatedAndTopicDeleted() {
-        final UStatus status = UStatus.newBuilder().setCode(UCode.OK).build();
-        when(mUCore.getUBus().send(any(), any())).thenReturn(status);
-        mUSubscription.sendSubscriptionUpdate(TestBase.LOCAL_CLIENT_URI, Update.getDefaultInstance());
-        mUSubscription.notifySubscriptionChanged(Update.getDefaultInstance());
-        mUSubscription.notifyTopicCreated(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        mUSubscription.notifyTopicDeprecated(TestBase.RESOURCE_URI);
-        //Notify subscription change verified
-        verify(mUCore.getUBus(), times(1)).send(any(), any());
-    }
-
-    @Test
-    public void testLogStatus() {
-        assertEquals(UCode.OK, USubscription.logStatus(Log.DEBUG, SUBSCRIBE.name(), STATUS_OK).getCode());
+    public void testShutdownReceiverUnregistrationFailure() {
+        reset(mContext);
+        doThrow(new RuntimeException()).when(mContext).unregisterReceiver(any());
+        mUSubscription.shutdown();
+        verify(mContext, times(1)).unregisterReceiver(any());
     }
 
     @Test
     public void testShutdownTimeout() {
         mUSubscription.getExecutor().execute(() -> sleep(200));
         mUSubscription.shutdown();
-        verify(mUBus, atLeastOnce()).disableDispatching(any(), anyInt(), any());
+        verify(mUBus, times(1)).unregisterClient(any());
     }
 
     @Test
@@ -339,20 +193,218 @@ public class USubscriptionTest extends SubscriptionTestBase {
         final Thread thread = new Thread(() -> mUSubscription.shutdown());
         thread.start();
         thread.interrupt();
-        verify(mUBus, times(0)).disableDispatching(any(), anyInt(), any());
+        verify(mUBus, timeout(DELAY_LONG_MS).times(1)).unregisterClient(any());
     }
 
-    @After
-    public void testShutdown() {
+    @Test
+    public void testHandlePackageRemoved() {
+        mUSubscription.inject(new Intent(Intent.ACTION_PACKAGE_FULLY_REMOVED)
+                .setData(new Uri.Builder().path(PACKAGE_NAME).build()));
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unsubscribeAllFromPackage(PACKAGE_NAME);
+    }
+
+    @Test
+    public void testHandlePackageRemovedWhenStarted() {
+        final PackageManager manager = mock(PackageManager.class);
+        doReturn(manager).when(mContext).getPackageManager();
+        doReturn(List.of(buildPackageInfo(PACKAGE2_NAME))).when(manager).getPackagesHoldingPermissions(any(), anyInt());
+        doReturn(List.of(PACKAGE_NAME, PACKAGE2_NAME)).when(mSubscriptionHandler).getSubscribedPackages();
+        mUSubscription.startup();
+        verify(mSubscriptionHandler, timeout(DELAY_LONG_MS).times(1)).unsubscribeAllFromPackage(PACKAGE_NAME);
+        verify(mSubscriptionHandler, times(0)).unsubscribeAllFromPackage(PACKAGE2_NAME);
+    }
+
+    @Test
+    public void testHandlePackageRemovedNoDetails() {
+        mUSubscription.inject(new Intent(Intent.ACTION_PACKAGE_FULLY_REMOVED));
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(0)).unsubscribeAllFromPackage(PACKAGE_NAME);
+    }
+
+    @Test
+    public void testHandleUnknownIntent() {
+        mUSubscription.inject(new Intent(Intent.ACTION_PACKAGE_REMOVED));
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(0)).unsubscribeAllFromPackage(any());
+    }
+
+    @Test
+    public void testHandleSubscribeRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_SUBSCRIBE, TTL)
+                .build(packToAny(SubscriptionRequest.getDefaultInstance()));
+        doReturn(SubscriptionResponse.getDefaultInstance()).when(mSubscriptionHandler).subscribe(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_LONG_MS).times(1)).subscribe(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleSubscribeRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_SUBSCRIBE, TTL)
+                .build(packToAny(SubscriptionRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).subscribe(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_LONG_MS).times(1)).subscribe(requestMessage);
+        verifyResponseSent(requestMessage, UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testHandleUnsubscribeRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_UNSUBSCRIBE, TTL)
+                .build(packToAny(UnsubscribeRequest.getDefaultInstance()));
+        doReturn(UnsubscribeResponse.getDefaultInstance()).when(mSubscriptionHandler).unsubscribe(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unsubscribe(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleUnsubscribeRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_UNSUBSCRIBE, TTL)
+                .build(packToAny(UnsubscribeRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).unsubscribe(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unsubscribe(requestMessage);
+        verifyResponseSent(requestMessage, UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testHandleRegisterForNotificationsRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_REGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(packToAny(NotificationsRequest.getDefaultInstance()));
+        doReturn(NotificationsResponse.getDefaultInstance()).when(mSubscriptionHandler).registerForNotifications(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).registerForNotifications(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleRegisterForNotificationsRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_REGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(packToAny(NotificationsRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).registerForNotifications(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).registerForNotifications(requestMessage);
+        verifyResponseSent(requestMessage, UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testHandleUnregisterForNotificationsRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_UNREGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(packToAny(NotificationsRequest.getDefaultInstance()));
+        doReturn(NotificationsResponse.getDefaultInstance()).when(mSubscriptionHandler).unregisterForNotifications(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unregisterForNotifications(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleUnregisterForNotificationsRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_UNREGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(packToAny(NotificationsRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).unregisterForNotifications(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).unregisterForNotifications(requestMessage);
+        verifyResponseSent(requestMessage, UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testHandleFetchSubscriptionsRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                .build(packToAny(FetchSubscriptionsRequest.getDefaultInstance()));
+        doReturn(FetchSubscriptionsResponse.getDefaultInstance()).when(mSubscriptionHandler).fetchSubscriptions(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscriptions(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleFetchSubscriptionsRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                .build(packToAny(FetchSubscriptionsRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).fetchSubscriptions(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscriptions(requestMessage);
+        verifyResponseSent(requestMessage, UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testHandleFetchSubscribersRequestMessage() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIBERS, TTL)
+                .build(packToAny(FetchSubscribersRequest.getDefaultInstance()));
+        doReturn(FetchSubscribersResponse.getDefaultInstance()).when(mSubscriptionHandler).fetchSubscribers(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscribers(requestMessage);
+        verifyResponseSent(requestMessage, UCode.OK);
+    }
+
+    @Test
+    public void testHandleFetchSubscribersRequestFailure() {
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIBERS, TTL)
+                .build(packToAny(FetchSubscribersRequest.getDefaultInstance()));
+        doThrow(new UStatusException(STATUS_UNKNOWN)).when(mSubscriptionHandler).fetchSubscribers(requestMessage);
+        mUSubscription.inject(requestMessage);
+        verify(mSubscriptionHandler, timeout(DELAY_MS).times(1)).fetchSubscribers(requestMessage);
+        verifyResponseSent(requestMessage,UCode.UNKNOWN);
+    }
+
+    @Test
+    public void testSendSubscriptionUpdate() {
+        final Update update = Update.newBuilder()
+                .setTopic(RESOURCE_URI)
+                .setSubscriber(SubscriberInfo.newBuilder().setUri(CLIENT_URI))
+                .setStatus(SubscriptionStatus.newBuilder().setState(State.SUBSCRIBED))
+                .build();
+        mUSubscription.sendSubscriptionUpdate(CLIENT_URI, update);
+        verify(mUBus, times(1)).send(argThat(message -> {
+            final UAttributes attributes = message.getAttributes();
+            return attributes.getSink().equals(CLIENT_URI) &&
+                   attributes.getSource().equals(USubscription.TOPIC_SUBSCRIPTION_UPDATE) &&
+                   attributes.getType().equals(UMessageType.UMESSAGE_TYPE_NOTIFICATION) &&
+                   update.equals(unpack(message, Update.class).orElse(null));
+        }), any());
+    }
+
+    @Test
+    public void testNotifySubscriptionChanged() {
+        final Update update = Update.newBuilder()
+                .setTopic(RESOURCE_URI)
+                .setSubscriber(SubscriberInfo.newBuilder().setUri(CLIENT_URI))
+                .setStatus(SubscriptionStatus.newBuilder().setState(State.SUBSCRIBED))
+                .build();
+        mUSubscription.registerListener(mSubscriptionListener);
+        mUSubscription.notifySubscriptionChanged(update);
         mUSubscription.unregisterListener(mSubscriptionListener);
-        mUSubscription.shutdown();
-        verify(mUBus, times(1)).disableDispatching(eq(SUBSCRIBE.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(UNSUBSCRIBE.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(CREATE_TOPIC.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(DEPRECATE_TOPIC.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(FETCH_SUBSCRIPTIONS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(FETCH_SUBSCRIBERS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(REGISTER_FOR_NOTIFICATIONS.localUri()), anyInt(), any());
-        verify(mUBus, times(1)).disableDispatching(eq(UNREGISTER_FOR_NOTIFICATIONS.localUri()), anyInt(), any());
+        verify(mSubscriptionListener, times(1)).onSubscriptionChanged(update);
+    }
+
+    @Test
+    public void testGetSubscriptions() {
+        final Set<SubscriptionData> subscriptions = Set.of(
+                new SubscriptionData(RESOURCE_URI, CLIENT_URI),
+                new SubscriptionData(RESOURCE_URI, CLIENT2_URI)
+        );
+        doReturn(subscriptions).when(mSubscriptionHandler).getSubscriptions(RESOURCE_URI);
+        assertEquals(subscriptions, mUSubscription.getSubscriptions(RESOURCE_URI));
+    }
+
+    @Test
+    public void testGetSubscriptionsWithExpiryTime() {
+        final Set<SubscriptionData> subscriptions = Set.of(
+                new SubscriptionData(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, 0),
+                new SubscriptionData(RESOURCE2_URI, CLIENT_URI, EXPIRY_TIME, 0));
+        doReturn(subscriptions).when(mSubscriptionHandler).getSubscriptionsWithExpiryTime();
+        assertEquals(subscriptions, mUSubscription.getSubscriptionsWithExpiryTime());
+    }
+
+    @Test
+    public void testUnsubscribe() {
+        mUSubscription.unsubscribe(RESOURCE_URI, CLIENT_URI);
+        verify(mSubscriptionHandler, times(1)).unsubscribe(RESOURCE_URI, CLIENT_URI);
+    }
+
+    @Test
+    public void testGetCallerCredentials() {
+        final Credentials credentials = new Credentials(PACKAGE_NAME, 0, 0, CLIENT_URI);
+        doReturn(credentials).when(mUBus).getCallerCredentials(ID);
+        assertEquals(credentials, mUSubscription.getCallerCredentials(ID));
     }
 }

@@ -24,32 +24,29 @@
 package org.eclipse.uprotocol.core.internal.handler;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
-import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.os.Binder;
 import android.os.IBinder;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import org.eclipse.uprotocol.communication.UPayload;
 import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.core.ubus.UBus;
 import org.eclipse.uprotocol.transport.UListener;
-import org.eclipse.uprotocol.v1.UAttributes;
-import org.eclipse.uprotocol.v1.UCode;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UStatus;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -59,7 +56,6 @@ import java.util.concurrent.CompletableFuture;
 
 @RunWith(AndroidJUnit4.class)
 public class MessageHandlerTest extends TestBase {
-    private static final UStatus STATUS_ERROR = buildStatus(UCode.UNKNOWN, "unknown");
     private final UBus mUBus = mock(UBus.class);
     private final UListener mListener1 = mock(UListener.class);
     private final UListener mListener2 = mock(UListener.class);
@@ -68,9 +64,9 @@ public class MessageHandlerTest extends TestBase {
 
     @Before
     public void setUp() {
-        mMessageHandler = new MessageHandler(mUBus, CLIENT, mClientToken);
-        when(mUBus.enableDispatching(any(), anyInt(), any())).thenReturn(STATUS_OK);
-        when(mUBus.disableDispatching(any(), anyInt(), any())).thenReturn(STATUS_OK);
+        mMessageHandler = new MessageHandler(mUBus, CLIENT_URI, mClientToken);
+        doReturn(STATUS_OK).when(mUBus).enableDispatching(any(), any());
+        doReturn(STATUS_OK).when(mUBus).disableDispatching(any(), any());
     }
 
     @Test
@@ -85,7 +81,7 @@ public class MessageHandlerTest extends TestBase {
 
     @Test
     public void testRegisterGenericListenerRejected() {
-        when(mUBus.enableDispatching(any(), anyInt(), any())).thenReturn(STATUS_ERROR);
+        doReturn(STATUS_UNKNOWN).when(mUBus).enableDispatching(any(), any());
         assertFalse(mMessageHandler.registerListener(RESOURCE_URI, mListener1));
     }
 
@@ -120,7 +116,7 @@ public class MessageHandlerTest extends TestBase {
 
     @Test
     public void testRegisterRequestListenerRejected() {
-        when(mUBus.enableDispatching(any(), anyInt(), any())).thenReturn(STATUS_ERROR);
+        doReturn(STATUS_UNKNOWN).when(mUBus).enableDispatching(any(), any());
         assertFalse(mMessageHandler.registerListener(METHOD_URI, mListener1));
     }
 
@@ -162,14 +158,14 @@ public class MessageHandlerTest extends TestBase {
     @Test
     public void testOnReceiveGenericMessage() {
         registerListeners();
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build(PAYLOAD);
         mMessageHandler.onReceive(message);
         verify(mListener1, times(1)).onReceive(message);
     }
 
     @Test
     public void testOnReceiveGenericMessageUnregistered() {
-        final UMessage message = buildPublishMessage(RESOURCE2_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build(PAYLOAD);
         mMessageHandler.onReceive(message);
         verify(mListener1, never()).onReceive(message);
     }
@@ -177,7 +173,7 @@ public class MessageHandlerTest extends TestBase {
     @Test
     public void testOnReceiveRequestMessage() {
         registerListeners();
-        final UMessage requestMessage = buildRequestMessage(RESPONSE_URI, METHOD_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         mMessageHandler.onReceive(requestMessage);
         verify(mListener1, times(1)).onReceive(requestMessage);
     }
@@ -185,7 +181,7 @@ public class MessageHandlerTest extends TestBase {
     @Test
     public void testOnReceiveRequestMessageUnregistered() {
         registerListeners();
-        final UMessage message = buildRequestMessage(RESPONSE_URI, METHOD2_URI);
+        final UMessage message = UMessageBuilder.request(CLIENT_URI, METHOD2_URI, TTL).build();
         mMessageHandler.onReceive(message);
         verify(mListener1, never()).onReceive(message);
     }
@@ -193,12 +189,12 @@ public class MessageHandlerTest extends TestBase {
     @Test
     public void testOnReceiveResponseMessage() {
         registerListeners();
-        final CompletableFuture<UMessage> responseFuture =
+        final CompletableFuture<UPayload> responseFuture =
                 mMessageHandler.getRpcExecutor().invokeMethod(METHOD_URI, PAYLOAD, OPTIONS).toCompletableFuture();
         final ArgumentCaptor<UMessage> captor = ArgumentCaptor.forClass(UMessage.class);
         verify(mUBus, timeout(DELAY_LONG_MS).times(1)).send(captor.capture(), eq(mClientToken));
         assertFalse(responseFuture.isDone());
-        final UMessage responseMessage = buildResponseMessage(captor.getValue());
+        final UMessage responseMessage = UMessageBuilder.response(captor.getValue().getAttributes()).build();
         mMessageHandler.onReceive(responseMessage);
         assertTrue(responseFuture.isDone());
     }
@@ -206,7 +202,7 @@ public class MessageHandlerTest extends TestBase {
     @Test
     public void testOnReceiveUnknownMessage() {
         registerListeners();
-        final UMessage message = buildMessage(PAYLOAD, UAttributes.getDefaultInstance());
+        final UMessage message = EMPTY_MESSAGE;
         mMessageHandler.onReceive(message);
         verify(mListener1, never()).onReceive(message);
         verify(mUBus, timeout(DELAY_MS).times(0)).send(message, mClientToken);

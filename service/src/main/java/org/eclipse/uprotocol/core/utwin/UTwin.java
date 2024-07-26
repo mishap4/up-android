@@ -29,12 +29,9 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.status;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.buildResponseMessage;
+import static org.eclipse.uprotocol.communication.UPayload.packToAny;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.checkTopicUriValid;
-import static org.eclipse.uprotocol.core.utwin.v2.UTwin.METHOD_GET_LAST_MESSAGES;
-import static org.eclipse.uprotocol.core.utwin.v2.UTwin.METHOD_SET_LAST_MESSAGE;
-import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
-import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.DEFAULT_RESOURCE_ID;
 
 import android.content.Context;
 import android.os.Binder;
@@ -45,21 +42,25 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.eclipse.uprotocol.common.UStatusException;
+import com.google.protobuf.Descriptors.ServiceDescriptor;
+
+import org.eclipse.uprotocol.Uoptions;
 import org.eclipse.uprotocol.common.util.log.Key;
+import org.eclipse.uprotocol.communication.UPayload;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.core.UCore;
 import org.eclipse.uprotocol.core.internal.handler.MessageHandler;
 import org.eclipse.uprotocol.core.ubus.UBus;
+import org.eclipse.uprotocol.core.utwin.v2.GetLastMessagesRequest;
 import org.eclipse.uprotocol.core.utwin.v2.GetLastMessagesResponse;
 import org.eclipse.uprotocol.core.utwin.v2.MessageResponse;
-import org.eclipse.uprotocol.uri.factory.UResourceBuilder;
+import org.eclipse.uprotocol.core.utwin.v2.UTwinProto;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
+import org.eclipse.uprotocol.uri.factory.UriFactory;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UPayload;
 import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
-import org.eclipse.uprotocol.v1.UUriBatch;
 
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -70,28 +71,14 @@ import java.util.function.Consumer;
 
 @SuppressWarnings("java:S3008")
 public class UTwin extends UCore.Component {
-    public static final UEntity SERVICE = org.eclipse.uprotocol.core.utwin.v2.UTwin.SERVICE;
+    public static final ServiceDescriptor DESCRIPTOR = UTwinProto.getDescriptor().getServices().get(0);
+    public static final String NAME = DESCRIPTOR.getOptions().getExtension(Uoptions.serviceName);
+    public static final UUri SERVICE = UriFactory.fromProto(DESCRIPTOR, DEFAULT_RESOURCE_ID);
+    public static final UUri METHOD_GET_LAST_MESSAGES = UriFactory.fromProto(DESCRIPTOR, 1);
+    public static final UUri METHOD_SET_LAST_MESSAGE = UriFactory.fromProto(DESCRIPTOR, 2);
 
-    protected static final String TAG = tag(SERVICE.getName());
+    protected static final String TAG = tag(NAME);
     protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
-
-    public enum Method {
-        GET_LAST_MESSAGES(METHOD_GET_LAST_MESSAGES),
-        SET_LAST_MESSAGE(METHOD_SET_LAST_MESSAGE);
-
-        private final String methodName;
-
-        Method(@NonNull String methodName) {
-            this.methodName = methodName;
-        }
-
-        public @NonNull UUri localUri() {
-            return UUri.newBuilder()
-                    .setEntity(SERVICE)
-                    .setResource(UResourceBuilder.forRpcRequest(methodName))
-                    .build();
-        }
-    }
 
     private final IBinder mClientToken = new Binder();
     private final ExecutorService mExecutor = Executors.newCachedThreadPool();
@@ -103,23 +90,22 @@ public class UTwin extends UCore.Component {
 
     @Override
     protected void init(@NonNull UCore uCore) {
-        Log.i(TAG, join(Key.EVENT, "Service init"));
+        Log.i(TAG, join(Key.STATE, "Init"));
         mUBus = uCore.getUBus();
         mMessageHandler = new MessageHandler(mUBus, SERVICE, mClientToken, mExecutor);
         mUBus.registerClient(SERVICE, mClientToken, mMessageHandler);
-        mMessageHandler.registerListener(Method.GET_LAST_MESSAGES.localUri(), this::getLastMessages);
-        mMessageHandler.registerListener(Method.SET_LAST_MESSAGE.localUri(), this::setLastMessage);
+        mMessageHandler.registerListener(METHOD_GET_LAST_MESSAGES, this::getLastMessages);
+        mMessageHandler.registerListener(METHOD_SET_LAST_MESSAGE, this::setLastMessage);
     }
 
     @Override
     protected void startup() {
-        Log.i(TAG, join(Key.EVENT, "Service start"));
+        Log.i(TAG, join(Key.STATE, "Startup"));
     }
 
     @Override
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     protected void shutdown() {
-        Log.i(TAG, join(Key.EVENT, "Service shutdown"));
+        Log.i(TAG, join(Key.STATE, "Shutdown"));
         mExecutor.shutdown();
         try {
             if (!mExecutor.awaitTermination(100, TimeUnit.MILLISECONDS)) {
@@ -139,11 +125,10 @@ public class UTwin extends UCore.Component {
         mMessageCache.clear();
     }
 
-    private static MessageResponse buildMessageResponse(@NonNull UStatus status, UUri topic, UMessage message) {
-        final MessageResponse.Builder builder = MessageResponse.newBuilder().setStatus(status);
-        if (topic != null) {
-            builder.setTopic(topic);
-        }
+    private static @NonNull MessageResponse buildMessageResponse(@NonNull UStatus status, @NonNull UUri topic, UMessage message) {
+        final MessageResponse.Builder builder = MessageResponse.newBuilder()
+                .setStatus(status)
+                .setTopic(topic);
         if (message != null) {
             builder.setMessage(message);
         }
@@ -151,17 +136,17 @@ public class UTwin extends UCore.Component {
     }
 
     private void getLastMessages(@NonNull UMessage requestMessage) {
-        final GetLastMessagesResponse.Builder builder = GetLastMessagesResponse.newBuilder();
         try {
-            unpack(requestMessage.getPayload(), UUriBatch.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, "Unexpected payload"))
-                    .getUrisList().forEach(topic -> builder.addResponses(getLastMessage(topic)));
+            final GetLastMessagesResponse.Builder builder = GetLastMessagesResponse.newBuilder();
+            UPayload.unpack(requestMessage, GetLastMessagesRequest.class)
+                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, "Invalid payload"))
+                    .getTopics().getUrisList().forEach(topic -> builder.addResponses(getLastMessage(topic)));
+            sendResponse(requestMessage, packToAny(builder.build()));
         } catch (Exception e) {
             final UStatus status = toStatus(e);
             Log.e(TAG, status("getLastMessages", status));
-            builder.addResponses(buildMessageResponse(status, null, null));
+            sendFailureResponse(requestMessage, status);
         }
-        sendResponse(requestMessage, packToAny(builder.build()));
     }
 
     private @NonNull MessageResponse getLastMessage(@NonNull UUri topic) {
@@ -177,13 +162,18 @@ public class UTwin extends UCore.Component {
         }
     }
 
-    @SuppressWarnings("unused")
     private void setLastMessage(@NonNull UMessage requestMessage) {
-        sendResponse(requestMessage, packToAny(buildStatus(UCode.PERMISSION_DENIED)));
+        sendFailureResponse(requestMessage, buildStatus(UCode.PERMISSION_DENIED));
     }
 
     private void sendResponse(@NonNull UMessage requestMessage, @NonNull UPayload responsePayload) {
-        mUBus.send(buildResponseMessage(requestMessage, responsePayload), mClientToken);
+        mUBus.send(UMessageBuilder.response(requestMessage.getAttributes()).build(responsePayload), mClientToken);
+    }
+
+    private void sendFailureResponse(@NonNull UMessage requestMessage, @NonNull UStatus status) {
+        mUBus.send(UMessageBuilder.response(requestMessage.getAttributes())
+                .withCommStatus(status.getCode())
+                .build(packToAny(status)), mClientToken);
     }
 
     public boolean addMessage(@NonNull UMessage message) {

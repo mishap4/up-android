@@ -21,39 +21,31 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription;
 
-import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
-import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
+import static com.google.common.collect.Sets.newHashSet;
+import static com.google.protobuf.util.Timestamps.toMillis;
+
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
+import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
-import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.checkTopicUriValid;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.getClientUri;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.toUri;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.toUriString;
-import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildNotificationUpdate;
+import static org.eclipse.uprotocol.communication.UPayload.unpack;
+import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isLocalUri;
+import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isRemoteUri;
+import static org.eclipse.uprotocol.core.internal.util.UUriUtils.removeResource;
+import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
 import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildRequestData;
 import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildSubscriber;
-import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildSubscriptionResponse;
+import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildSubscription;
 import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildSubscriptionStatus;
-import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.convertToString;
-import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.toStatus;
+import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildUpdate;
+import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.checkSameEntity;
 import static org.eclipse.uprotocol.core.usubscription.USubscription.DEBUG;
 import static org.eclipse.uprotocol.core.usubscription.USubscription.TAG;
 import static org.eclipse.uprotocol.core.usubscription.USubscription.VERBOSE;
 import static org.eclipse.uprotocol.core.usubscription.USubscription.logStatus;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_CREATE_TOPIC;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_DEPRECATE_TOPIC;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_FETCH_SUBSCRIBERS;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_FETCH_SUBSCRIPTIONS;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_REGISTER_FOR_NOTIFICATIONS;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_SUBSCRIBE;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
-import static org.eclipse.uprotocol.core.usubscription.v3.USubscription.METHOD_UNSUBSCRIBE;
-import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.unpack;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isEmpty;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptySet;
@@ -64,22 +56,19 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
-import com.google.common.collect.Sets;
-
-import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Key;
-import org.eclipse.uprotocol.core.internal.util.UUriUtils;
+import org.eclipse.uprotocol.communication.UStatusException;
+import org.eclipse.uprotocol.core.ubus.client.Credentials;
 import org.eclipse.uprotocol.core.usubscription.database.DatabaseHelper;
-import org.eclipse.uprotocol.core.usubscription.database.SubscribersRecord;
-import org.eclipse.uprotocol.core.usubscription.database.SubscriptionsRecord;
-import org.eclipse.uprotocol.core.usubscription.database.TopicsRecord;
-import org.eclipse.uprotocol.core.usubscription.v3.CreateTopicRequest;
-import org.eclipse.uprotocol.core.usubscription.v3.DeprecateTopicRequest;
+import org.eclipse.uprotocol.core.usubscription.database.SubscriberRecord;
+import org.eclipse.uprotocol.core.usubscription.database.SubscriptionRecord;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsRequest.RequestCase;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.NotificationsRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.NotificationsResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
 import org.eclipse.uprotocol.core.usubscription.v3.Subscription;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionRequest;
@@ -87,59 +76,35 @@ import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
 import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeRequest;
-import org.eclipse.uprotocol.uuid.serializer.LongUuidSerializer;
+import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.Update;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UPayload;
-import org.eclipse.uprotocol.v1.UStatus;
+import org.eclipse.uprotocol.v1.UUID;
 import org.eclipse.uprotocol.v1.UUri;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @SuppressWarnings("java:S1200")
 public class SubscriptionHandler {
-    public static final String UNEXPECTED_PAYLOAD = "Unexpected payload";
+    public static final String MESSAGE_INVALID_PAYLOAD = "Invalid payload";
+    public static final String MESSAGE_REMOTE_UNSUPPORTED = "Remote requests are not supported";
     private final Context mContext;
     private final DatabaseHelper mDatabaseHelper;
-    private final CacheHandler mCacheHandler;
     private USubscription mUSubscription;
 
     public SubscriptionHandler(@NonNull Context context) {
-        mContext = context;
-        mDatabaseHelper = new DatabaseHelper();
-        mCacheHandler = new CacheHandler(mDatabaseHelper);
+        this(context, new DatabaseHelper());
     }
 
     @VisibleForTesting
-    public SubscriptionHandler(@NonNull Context context, @NonNull DatabaseHelper databaseHelper,
-            @NonNull CacheHandler cacheHandler) {
+    public SubscriptionHandler(@NonNull Context context, @NonNull DatabaseHelper databaseHelper) {
         mContext = context;
         mDatabaseHelper = databaseHelper;
-        mCacheHandler = cacheHandler;
-    }
-
-    private static void checkSameEntity(@NonNull UUri uri1, @NonNull UUri uri2) {
-        checkArgument(uri1.getEntity().getName().equals(uri2.getEntity().getName()), UCode.PERMISSION_DENIED,
-                "'" + stringify(uri1) + "' doesn't match to '" + stringify(uri2) + "'");
-    }
-
-    private void notifySubscriptionUpdate(@NonNull Set<String> sinks, @NonNull RequestData data,
-            @NonNull SubscriptionStatus status) {
-
-        sinks.forEach(sink -> {
-            final UUri sinkUri = toUri(sink);
-            mUSubscription.sendSubscriptionUpdate(sinkUri, buildNotificationUpdate(data.topic, data.buildSubscriber(),
-                    data.attributes, status));
-            if (VERBOSE) {
-                Log.v(TAG, join(Key.EVENT, "Notification sent", Key.URI, stringify(data.topic)));
-            }
-        });
-        mUSubscription.notifySubscriptionChanged(
-                buildNotificationUpdate(data.topic, data.buildSubscriber(), data.attributes, status));
     }
 
     public void init(USubscription usubscription) {
@@ -147,527 +112,290 @@ public class SubscriptionHandler {
         mDatabaseHelper.init(mContext);
     }
 
-    /**
-     * Fetch subscribers of the topic from subscribers table
-     *
-     * @param topicUri - topic whose subscribers are to be fetched.
-     * @return set of subscribers for the topic if exists. emptySet otherwise
-     */
-    public @NonNull Set<UUri> getSubscribers(@NonNull UUri topicUri) {
-        try {
-            final String topic = toUriString(topicUri);
-            if (getSubscriptionState(topic) == State.SUBSCRIBED) {
-                return getSubscribers(topic).stream()
-                        .map(UUriUtils::toUri)
-                        .collect(Collectors.toSet());
-            }
-        } catch (Exception e) {
-            logStatus(Log.ERROR, "getSubscribers", toStatus(e));
-        }
-        return emptySet();
+    public void startup() {
+        // Nothing to do
     }
 
-    /**
-     * Check if the topic exists in Topics table
-     *
-     * @param topic - Topic to be checked
-     * @return true - if found
-     */
-    public boolean isTopicCreated(@NonNull String topic) {
-        try {
-            return mDatabaseHelper.isTopicCreated(topic);
-        } catch (Exception e) {
-            logStatus(Log.ERROR, "isTopicCreated", toStatus(e));
-            return false;
-        }
+    public void shutdown() {
+        mDatabaseHelper.shutdown();
     }
 
-    /**
-     * Make an entry in the Topics table of db
-     *
-     * @param message - UMessage having CreateTopicRequest
-     * @return Status  - OK if successful
-     */
-    public @NonNull UStatus createTopic(@NonNull UMessage message) {
-        try {
-            final UPayload payload = message.getPayload();
-            final CreateTopicRequest request = unpack(payload, CreateTopicRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-            final UUri topic = request.getTopic();
-            final UUri publisher = getClientUri(message.getAttributes().getSource());
+    public @NonNull SubscriptionResponse subscribe(@NonNull UMessage message) throws UStatusException {
+        final UUID requestId = message.getAttributes().getId();
+        final UUri source = message.getAttributes().getSource();
+        final SubscriptionRequest request = unpack(message, SubscriptionRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final RequestData data = buildRequestData(request, isRemoteUri(source));
+        final Credentials credentials = mUSubscription.getCallerCredentials(requestId);
+        checkArgument(!isEmpty(data.topic()), UCode.INVALID_ARGUMENT, "Topic is empty");
+        checkArgument(!isEmpty(data.subscriber()), UCode.INVALID_ARGUMENT, "Subscriber is empty");
+        checkSameEntity(source, data.subscriber());
 
-            checkArgument(!publisher.hasAuthority() && !topic.hasAuthority(),
-                    UCode.PERMISSION_DENIED,
-                    "Client '" + stringify(publisher) + "' is not allowed to create topic '" + request.getTopic()
-                            + "'");
-
-            checkSameEntity(topic, publisher);
-            return createTopic(topic, publisher);
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_CREATE_TOPIC, toStatus(e));
+        final SubscriptionStatus status;
+        if (isLocalUri(data.topic())) {
+            status = subscribeLocal(data, requestId, credentials);
+        } else {
+            throw new UStatusException(UCode.UNIMPLEMENTED, MESSAGE_REMOTE_UNSUPPORTED);
         }
+        return SubscriptionResponse.newBuilder()
+                .setTopic(data.topic())
+                .setStatus(status)
+                .build();
     }
 
-    public @NonNull UStatus createTopic(@NonNull UUri topicUri, @NonNull UUri publisherUri) {
-        try {
-            checkTopicUriValid(topicUri);
-            final String topicDetails = convertToString(emptyList());
-            final String topic = toUriString(topicUri);
-            final String publisher = toUriString(publisherUri);
-            final TopicsRecord topicsRecord = new TopicsRecord(topic, publisher, topicDetails,
-                    isRegisteredForNotification(topic));
-            if (DEBUG) {
-                Log.d(TAG, join(Key.REQUEST, METHOD_CREATE_TOPIC, Key.URI, topicsRecord.getTopic()));
-            }
-            if (mDatabaseHelper.addTopic(topicsRecord) < 0) {
-                throw new UStatusException(
-                        UCode.ABORTED,
-                        "Failed to add topic to topics table in DB");
-            }
-            mUSubscription.notifyTopicCreated(topicUri, publisherUri);
-            if (VERBOSE) {
-                logStatus(Log.VERBOSE, METHOD_CREATE_TOPIC, STATUS_OK, Key.URI, stringify(topicUri));
-            }
-            return STATUS_OK;
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_CREATE_TOPIC, toStatus(e), Key.URI, stringify(topicUri));
+    private @NonNull SubscriptionStatus subscribeLocal(@NonNull RequestData data, @NonNull UUID requestId,
+            @NonNull Credentials credentials) {
+        if (!isTopicSubscribed(data.topic())) {
+            addSubscription(data, requestId, State.SUBSCRIBED);
         }
+        return addOrUpdateSubscriber(data, requestId, credentials);
     }
 
-    /**
-     * Remove all entries from the tables of db for the corresponding topic
-     *
-     * @param message - UMessage
-     * @return Status - OK - if DB entry removed successfully, NOT_FOUND otherwise.
-     */
-    public @NonNull UStatus deprecateTopic(@NonNull UMessage message) {
-        try {
-            final UPayload payload = message.getPayload();
-            final DeprecateTopicRequest request = unpack(payload, DeprecateTopicRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-            final UUri topic = request.getTopic();
-            final UUri publisher = getClientUri(message.getAttributes().getSource());
-
-            checkArgument(!publisher.hasAuthority() && !topic.hasAuthority(),
-                    UCode.PERMISSION_DENIED,
-                    "Client '" + publisher + "' is not allowed to deprecate topic '" + request.getTopic() + "'");
-
-            checkSameEntity(topic, publisher);
-            return deprecateTopic(topic);
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_DEPRECATE_TOPIC, toStatus(e));
+    @SuppressWarnings("SameParameterValue")
+    private void addSubscription(@NonNull RequestData data, @NonNull UUID requestId, @NonNull State state) {
+        final SubscriptionRecord subscriptionRecord = new SubscriptionRecord(data.topic(), state, requestId);
+        if (mDatabaseHelper.addSubscription(subscriptionRecord) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to add subscription: " + subscriptionRecord);
         }
-    }
-
-    public @NonNull UStatus deprecateTopic(@NonNull UUri topicUri) {
-        return logStatus(Log.WARN, METHOD_DEPRECATE_TOPIC, buildStatus(UCode.UNIMPLEMENTED), Key.TOPIC, topicUri);
-    }
-
-    /**
-     * subscribe API: Extract SubscriptionRequest from UMessage to fetch topic ,
-     * SubscriberInfo and Subscriber Attribute
-     * <p>
-     * Check if the incoming topic is local and is created.
-     * Add entry to subscription table if the topic is not subscribed ,
-     * update subscription state as SUBSCRIBED and set Status to OK.
-     * Notify SubscriptionUpdate to subscriber and tracker to indicate the topic is SUBSCRIBED.
-     * <p>
-     * If topic is remote and not subscribed, add entry to subscription table
-     * with subscriptionState as SUBSCRIBE_PENDING and set Status to OK.
-     * Notify SubscriptionUpdate to subscriber indicating the topic is SUBSCRIBE_PENDING,
-     * <p>
-     * Add to subscribers table if status is OK, else return NOT_FOUND
-     *
-     * @param message - UMessage of req type, containing SubscriptionRequest
-     * @return SubscriptionResponse - Having the status, or null if request is postponed
-     */
-    @SuppressWarnings("java:S3776")
-    public @NonNull SubscriptionResponse subscribe(@NonNull UMessage message) {
-        if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_SUBSCRIBE, Key.EVENT, stringify(message)));
-        }
-        SubscriptionResponse response;
-        final String id = LongUuidSerializer.instance().serialize(message.getAttributes().getId());
-
-        try {
-            final UPayload payload = message.getPayload();
-            final SubscriptionRequest request = unpack(payload, SubscriptionRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-            final UUri source = message.getAttributes().getSource();
-
-            final RequestData data = buildRequestData(request, source.hasAuthority());
-            checkSameEntity(source, data.subscriber);
-
-            if (!data.topic.hasAuthority()) {
-                if (isTopicCreated(toUriString(data.topic))) {
-                    response = subscribeLocal(id, data);
-                } else {
-                    response = buildSubscriptionResponse(buildSubscriptionStatus(
-                            UCode.NOT_FOUND, State.UNSUBSCRIBED, "Topic is not created"));
-                }
-            } else {
-                response = buildSubscriptionResponse(buildSubscriptionStatus(
-                        UCode.UNIMPLEMENTED, State.UNSUBSCRIBED, "Remote requests not supported currently"));
-            }
-        } catch (Exception e) {
-            logStatus(Log.ERROR, METHOD_SUBSCRIBE, toStatus(e));
-            response = SubscriptionUtils.toSubscriptionResponse(e);
-        }
-        if (DEBUG) {
-            logStatus(Log.DEBUG, METHOD_SUBSCRIBE, buildStatus(response.getStatus().getCode()));
-        }
-        return response;
-    }
-
-    private @NonNull SubscriptionResponse subscribeLocal(String id, @NonNull RequestData data) {
-        final String topic = toUriString(data.topic);
         if (VERBOSE) {
-            Log.v(TAG, join(Key.MESSAGE, "Topic is created", Key.URI, topic));
-        }
-        if (!isTopicSubscribed(topic)) {
-            if (VERBOSE) {
-                Log.v(TAG, join(Key.MESSAGE, "Topic not subscribed, add to subscriptions"));
-            }
-            addTopicToSubscriptionTable(topic, id, State.SUBSCRIBED);
-        }
-        final SubscriptionStatus status = addSubscriber(id, data);
-        return buildSubscriptionResponse(status);
-    }
-
-    private void addTopicToSubscriptionTable(String topicUri, String id, @NonNull State state) {
-        final SubscriptionsRecord subscriptionsRecord = new SubscriptionsRecord(topicUri, id, state.getNumber());
-        if (mDatabaseHelper.addSubscription(subscriptionsRecord) < 0) {
-            throw new SubscriptionException(buildSubscriptionStatus(
-                    UCode.ABORTED, getSubscriptionState(topicUri),
-                    "Failed to add topic to subscription table in DB"));
+            Log.v(TAG, join(Key.MESSAGE, "Subscription added", Key.SUBSCRIPTION, subscriptionRecord));
         }
     }
 
-    private SubscriptionStatus addSubscriber(String id, @NonNull RequestData data) {
-        final String subscriber = toUriString(data.subscriber);
-        final String topic = toUriString(data.topic);
-        final Set<String> subscribers = getSubscribers(topic);
-
-        if (!subscribers.contains(subscriber)) {
-            return addSubscriberToSubscribersTable(id, data);
+    private @NonNull SubscriptionStatus addOrUpdateSubscriber(@NonNull RequestData data, @NonNull UUID requestId,
+            @NonNull Credentials credentials) {
+        final String packageName = isLocalUri(data.subscriber()) ? credentials.packageName() : "";
+        final SubscriberRecord newRecord = new SubscriberRecord(data.topic(), data.subscriber(),
+                toMillis(data.attributes().getExpire()), data.attributes().getSamplePeriodMs(), packageName, requestId);
+        final SubscriberRecord oldRecord = mDatabaseHelper.getSubscriber(data.topic(), data.subscriber());
+        if (oldRecord != null) {
+            return updateSubscriber(data, newRecord, shouldNotify(oldRecord, newRecord));
         } else {
-            Log.i(TAG, join(Key.MESSAGE, "Subscriber already exists", Key.SUBSCRIBER, stringify(data.subscriber)));
-            return buildSubscriptionStatus(UCode.OK, getSubscriptionState(topic), "Subscriber already exists");
+            return addSubscriber(data, newRecord);
         }
     }
 
-    private @NonNull SubscriptionStatus addSubscriberToSubscribersTable(@NonNull String id, @NonNull RequestData data) {
-        final String expiryTime = data.attributes.getExpire().toString();
-        final String topic = toUriString(data.topic);
-        final String subscriber = toUriString(data.subscriber);
-        final String subscriberDetails = convertToString(data.subscriberDetails);
-        final SubscribersRecord subscribersRecord =
-                new SubscribersRecord(topic, subscriber, subscriberDetails, expiryTime, id);
-        if (mDatabaseHelper.addSubscriber(subscribersRecord) < 0) {
-            throw new SubscriptionException(buildSubscriptionStatus(
-                    UCode.ABORTED,
-                    getSubscriptionState(topic),
-                    "Failed to add subscriber to DB"));
-        } else {
-            if (VERBOSE) {
-                Log.v(TAG, join(Key.MESSAGE, "Subscriber added to db", Key.SUBSCRIBER, stringify(data.subscriber)));
-            }
-            final SubscriptionStatus status = buildSubscriptionStatus(UCode.OK, getSubscriptionState(topic), "");
-            final String tracker = getPublisherIfRegistered(topic);
-            final Set<String> notifiers = tracker.isEmpty() ? emptySet() : Sets.newHashSet(tracker);
-            notifySubscriptionUpdate(notifiers, data, status);
-            return status;
-        }
+    @VisibleForTesting
+    static boolean shouldNotify(@NonNull SubscriberRecord oldRecord, @NonNull SubscriberRecord newRecord) {
+        return (oldRecord.getExpiryTime() != newRecord.getExpiryTime()) ||
+               (oldRecord.getSamplingPeriod() != newRecord.getSamplingPeriod());
     }
 
-    private @NonNull String getPublisherIfRegistered(String topic) {
-        return emptyIfNull(mDatabaseHelper.getPublisherIfRegistered(topic));
+    private @NonNull SubscriptionStatus addSubscriber(@NonNull RequestData data,
+            @NonNull SubscriberRecord subscriberRecord) {
+        if (mDatabaseHelper.addSubscriber(subscriberRecord) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to add subscriber: " + subscriberRecord);
+        }
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Subscriber added", Key.SUBSCRIBER, subscriberRecord));
+        }
+        final Set<UUri> notifiers = getObserver(data.topic()).map(Collections::singleton).orElse(emptySet());
+        final SubscriptionStatus status = buildSubscriptionStatus(getSubscriptionState(data.topic()));
+        notifySubscriptionUpdate(notifiers, buildUpdate(data.topic(), data.subscriber(), data.attributes(), status));
+        return status;
     }
 
-    /**
-     * unsubscribe API : Unpack the UMessage for UnsubscribeRequest
-     * <p>
-     * if topic is subscribed, remove entry from subscribers table.
-     * Check if this subscriber was the last subscriber in the table.
-     * if yes , and if topic is local, remove from subscription table and
-     * notify subscription update indicating the topic was UNSUBSCRIBED.
-     * If remote , generate UMessage for remote request, update status in db to
-     * UNSUBSCRIBE_PENDING and notify subscription state update as UNSUBSCRIBED.
-     *
-     * @param message - UMessage having UnsubscribeRequest
-     * @return Status - OK
-     */
-    public @NonNull UStatus unsubscribe(@NonNull UMessage message) {
-        if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_UNSUBSCRIBE, Key.EVENT, stringify(message)));
+    private @NonNull SubscriptionStatus updateSubscriber(@NonNull RequestData data,
+            @NonNull SubscriberRecord subscriberRecord, boolean shouldNotify) {
+        if (mDatabaseHelper.updateSubscriber(subscriberRecord) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to update subscriber: " + subscriberRecord);
         }
-        UCode code = UCode.OK;
-        try {
-            final UPayload payload = message.getPayload();
-            final UnsubscribeRequest request = unpack(payload, UnsubscribeRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-
-            final UUri source = message.getAttributes().getSource();
-
-            final RequestData data = buildRequestData(request, source.hasAuthority());
-            checkSameEntity(source, data.subscriber);
-
-            if (isTopicSubscribed(toUriString(data.topic))) {
-                code = deleteSubscriberFromDB(data);
-            }
-            // TODO: check if NOT_FOUND should be returned if not subscribed ?
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_UNSUBSCRIBE, toStatus(e));
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Subscriber updated", Key.SUBSCRIBER, subscriberRecord));
         }
-        final UStatus status = buildStatus(code);
-        if (DEBUG) {
-            logStatus(Log.DEBUG, METHOD_UNSUBSCRIBE, status);
+        final SubscriptionStatus status = buildSubscriptionStatus(getSubscriptionState(data.topic()));
+        if (shouldNotify) {
+            final Set<UUri> notifiers = emptySet(); // Should observer be notified if subscription attributes changed?
+            notifySubscriptionUpdate(notifiers, buildUpdate(data.topic(), data.subscriber(), data.attributes(), status));
         }
         return status;
     }
 
-    private @NonNull UCode deleteSubscriberFromDB(@NonNull RequestData data) {
-        final String topic = toUriString(data.topic);
-        final String subscriber = toUriString(data.subscriber);
-        final int subscribersCount = getSubscribers(topic).size();
-        final SubscribersRecord subscriberRecord = mDatabaseHelper.getSubscriber(topic, subscriber);
+    public @NonNull UnsubscribeResponse unsubscribe(@NonNull UMessage message) throws UStatusException {
+        final UUri source = message.getAttributes().getSource();
+        final UnsubscribeRequest request = unpack(message, UnsubscribeRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final RequestData data = buildRequestData(request, isRemoteUri(source));
+        checkArgument(!isEmpty(data.topic()), UCode.INVALID_ARGUMENT, "Topic is empty");
+        checkArgument(!isEmpty(data.subscriber()), UCode.INVALID_ARGUMENT, "Subscriber is empty");
+        checkSameEntity(source, data.subscriber());
 
+        if (isTopicSubscribed(data.topic())) {
+            deleteSubscriber(data);
+        }
+        return UnsubscribeResponse.getDefaultInstance();
+    }
+
+    private void deleteSubscriber(@NonNull RequestData data) {
+        final SubscriberRecord subscriberRecord = mDatabaseHelper.getSubscriber(data.topic(), data.subscriber());
         if (subscriberRecord != null) {
-            mDatabaseHelper.deleteSubscriber(topic, subscriber);
-            if (subscribersCount == 1) {
-                if (VERBOSE) {
-                    Log.v(TAG, join(Key.MESSAGE, "Delete last subscriber for topic", Key.URI, topic));
-                }
-                mDatabaseHelper.deleteTopicFromSubscriptions(topic);
-            }
-            final String tracker = getPublisherIfRegistered(topic);
-            final Set<String> notifiers = tracker.isEmpty() ? emptySet() : Sets.newHashSet(tracker);
-            notifySubscriptionUpdate(notifiers, data,
-                    buildSubscriptionStatus(UCode.NOT_FOUND, State.UNSUBSCRIBED, ""));
+            deleteSubscriber(subscriberRecord);
         }
-        return UCode.OK;
     }
 
-    private @NonNull Set<String> getSubscribers(@NonNull String topic) {
-        return new HashSet<>(mDatabaseHelper.getSubscribers(topic));
+    private void deleteSubscriber(@NonNull SubscriberRecord subscriberRecord) {
+        final RequestData data = new RequestData(subscriberRecord);
+        if (mDatabaseHelper.deleteSubscriber(data.topic(), data.subscriber()) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to delete subscriber: " + subscriberRecord);
+        }
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Subscriber deleted", Key.TOPIC, stringify(data.topic()),
+                    Key.SUBSCRIBER, stringify(data.subscriber())));
+        }
+        if (mDatabaseHelper.getSubscribersCount(data.topic()) <= 0) {
+            deleteSubscription(data);
+        }
+        final SubscriptionStatus status = buildSubscriptionStatus(State.UNSUBSCRIBED);
+        final Set<UUri> notifiers = newHashSet(data.subscriber());
+        getObserver(data.topic()).ifPresent(notifiers::add);
+        notifySubscriptionUpdate(notifiers, buildUpdate(data.topic(), data.subscriber(), data.attributes(), status));
     }
 
-    /**
-     * fetchSubscriptions : API to fetchSubscriptions by Topic or by Subscriber
-     * <p>
-     * Based on the request type, list of subscriptions is fetched from the db.
-     * if subscriptions are not empty, build and return FetchSubscriptionResponse.
-     * Else response with NOT_FOUND is returned.
-     *
-     * @param message - UMessage having FetchSubscriptionRequest
-     * @return FetchSubscriptionsResponse - containing subscriptions and status
-     */
-    public @NonNull FetchSubscriptionsResponse fetchSubscriptions(@NonNull UMessage message) {
+    private void deleteSubscription(@NonNull RequestData data) {
+        if (mDatabaseHelper.deleteSubscription(data.topic()) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to delete subscription: " + stringify(data.topic()));
+        }
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Subscription deleted", Key.TOPIC, stringify(data.topic())));
+        }
+    }
+
+    public void unsubscribe(@NonNull UUri topic, @NonNull UUri subscriber) {
+        try {
+            deleteSubscriber(new RequestData(topic, subscriber));
+        } catch (Exception e) {
+            logStatus(Log.ERROR, "unsubscribe", toStatus(e), Key.TOPIC, stringify(topic), Key.SUBSCRIBER, stringify(subscriber));
+        }
+    }
+
+    public void unsubscribeAllFromPackage(@NonNull String packageName) {
+        try {
+            mDatabaseHelper.getSubscribersFromPackage(packageName).forEach(this::deleteSubscriber);
+        } catch (Exception e) {
+            logStatus(Log.ERROR, "unsubscribeAllFromPackage", toStatus(e), Key.PACKAGE, packageName);
+        }
+    }
+
+    public @NonNull FetchSubscriptionsResponse fetchSubscriptions(@NonNull UMessage message) throws UStatusException {
+        final FetchSubscriptionsRequest request = unpack(message, FetchSubscriptionsRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final FetchSubscriptionsRequest.RequestCase requestCase = request.getRequestCase();
+        final List<Subscription> subscriptions;
+        if (requestCase == RequestCase.TOPIC) {
+            final UUri topic = request.getTopic();
+            final State state = mDatabaseHelper.getSubscriptionState(topic);
+            subscriptions = mDatabaseHelper.getSubscribersByTopic(topic).stream()
+                    .map(it -> buildSubscription(it, state))
+                    .toList();
+        } else if (requestCase == RequestCase.SUBSCRIBER) {
+            subscriptions = mDatabaseHelper.getSubscribersByUri(request.getSubscriber().getUri()).stream()
+                    .map(it -> buildSubscription(it, mDatabaseHelper.getSubscriptionState(it.getTopic())))
+                    .toList();
+        } else {
+            throw new UStatusException(UCode.INVALID_ARGUMENT, "Request case not set or unsupported");
+        }
+        return FetchSubscriptionsResponse.newBuilder()
+                .addAllSubscriptions(subscriptions)
+                .setHasMoreRecords(false)
+                .build();
+    }
+
+    public @NonNull FetchSubscribersResponse fetchSubscribers(@NonNull UMessage message) throws UStatusException {
+        final FetchSubscribersRequest request = unpack(message, FetchSubscribersRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final List<SubscriberInfo> subscribers = mDatabaseHelper.getSubscribersByTopic(request.getTopic()).stream()
+                .map(it -> buildSubscriber(it.getSubscriber()))
+                .toList();
+        return FetchSubscribersResponse.newBuilder()
+                .addAllSubscribers(subscribers)
+                .setHasMoreRecords(false)
+                .build();
+    }
+
+    public @NonNull NotificationsResponse registerForNotifications(@NonNull UMessage message) {
+        final UUri source = message.getAttributes().getSource();
+        final NotificationsRequest request = unpack(message, NotificationsRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final UUri topic = request.getTopic();
+        checkSameEntity(source, topic);
+        if (mDatabaseHelper.addObserver(topic) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to add observer for " + stringify(topic));
+        }
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Observer added", Key.TOPIC, stringify(topic)));
+        }
+        return NotificationsResponse.getDefaultInstance();
+    }
+
+    public @NonNull NotificationsResponse unregisterForNotifications(@NonNull UMessage message) {
+        final UUri source = message.getAttributes().getSource();
+        final NotificationsRequest request = unpack(message, NotificationsRequest.class)
+                .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, MESSAGE_INVALID_PAYLOAD));
+        final UUri topic = request.getTopic();
+        checkSameEntity(source, topic);
+        if (mDatabaseHelper.deleteObserver(topic) < 0) {
+            throw new UStatusException(UCode.INTERNAL, "Failed to delete observer for " + stringify(topic));
+        }
+        if (VERBOSE) {
+            Log.v(TAG, join(Key.MESSAGE, "Observer removed", Key.TOPIC, stringify(topic)));
+        }
+        return NotificationsResponse.getDefaultInstance();
+    }
+
+    private void notifySubscriptionUpdate(@NonNull Set<UUri> sinks, @NonNull Update update) {
         if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_FETCH_SUBSCRIPTIONS, Key.EVENT, stringify(message)));
+            Log.d(TAG, join(Key.EVENT, "Notify update", Key.SUBSCRIPTION, stringify(update)));
         }
-        UCode code = UCode.NOT_FOUND;
-        FetchSubscriptionsResponse response = FetchSubscriptionsResponse.newBuilder()
-                .setStatus(buildStatus(code)).build();
-        try {
-            final UPayload payload = message.getPayload();
-            final FetchSubscriptionsRequest request = unpack(payload, FetchSubscriptionsRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-            final FetchSubscriptionsRequest.RequestCase requestCase = request.getRequestCase();
-            List<Subscription> subscriptions = emptyList();
-            if (requestCase == FetchSubscriptionsRequest.RequestCase.TOPIC) {
-                final UUri topicUri = request.getTopic();
-                subscriptions = mCacheHandler.fetchSubscriptionsByTopic(topicUri);
-            } else if (requestCase == FetchSubscriptionsRequest.RequestCase.SUBSCRIBER) {
-                final SubscriberInfo subscriber = request.getSubscriber();
-                subscriptions = mCacheHandler.fetchSubscriptionsBySubscriber(subscriber);
-            }
-            if (!subscriptions.isEmpty()) {
-                code = UCode.OK;
-                response = FetchSubscriptionsResponse.newBuilder()
-                        .addAllSubscriptions(subscriptions)
-                        .setHasMoreRecords(false)
-                        .setStatus(buildStatus(code))
-                        .build();
-            }
-            if (VERBOSE) {
-                logStatus(Log.VERBOSE, METHOD_FETCH_SUBSCRIPTIONS, buildStatus(code));
-            }
-        } catch (Exception e) {
-            code = UCode.ABORTED;
-            logStatus(Log.ERROR, METHOD_FETCH_SUBSCRIPTIONS, buildStatus(code, e.getMessage()));
-            response = FetchSubscriptionsResponse.newBuilder()
-                    .setStatus(buildStatus(code))
-                    .build();
-        }
-        return response;
+        sinks.forEach(sink -> mUSubscription.sendSubscriptionUpdate(sink, update));
+        mUSubscription.notifySubscriptionChanged(update);
     }
 
-    /**
-     * fetchSubscribers : API to fetchSubscribers for a topic
-     * <p>
-     * List of subscribers is fetched from the db.
-     * if subscribers are not empty, build and return FetchSubscriberResponse.
-     * Else response with NOT_FOUND is returned.
-     *
-     * @param message - UMessage having FetchSubscribersRequest
-     * @return FetchSubscribersResponse - containing subscribers and status
-     */
-    public @NonNull FetchSubscribersResponse fetchSubscribers(@NonNull UMessage message) {
-        if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_FETCH_SUBSCRIBERS, Key.EVENT, stringify(message)));
-        }
-        UCode code = UCode.NOT_FOUND;
-        FetchSubscribersResponse response = FetchSubscribersResponse.newBuilder().setStatus(buildStatus(code)).build();
-        try {
-            final UPayload payload = message.getPayload();
-            final FetchSubscribersRequest request = unpack(payload, FetchSubscribersRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-            final List<SubscribersRecord> subscribersRecords = mDatabaseHelper.fetchSubscriptionsByTopic(
-                    toUriString(request.getTopic()));
-
-            if (!subscribersRecords.isEmpty()) {
-                final List<SubscriberInfo> subscriberInfoList = new ArrayList<>();
-                for (SubscribersRecord subscribersRecord : subscribersRecords) {
-                    String subscriberUri = emptyIfNull(subscribersRecord.getSubscriberUri());
-                    String subscriberDetails = emptyIfNull(subscribersRecord.getSubscriberDetails());
-                    subscriberInfoList.add(buildSubscriber(subscriberUri, subscriberDetails));
-                }
-                code = UCode.OK;
-                response = FetchSubscribersResponse.newBuilder()
-                        .addAllSubscribers(subscriberInfoList)
-                        .setHasMoreRecords(false)
-                        .setStatus(buildStatus(code))
-                        .build();
-            }
-            if (VERBOSE) {
-                logStatus(Log.VERBOSE, METHOD_FETCH_SUBSCRIBERS, buildStatus(code));
-            }
-        } catch (Exception e) {
-            final UStatus status = logStatus(Log.ERROR, METHOD_FETCH_SUBSCRIBERS,
-                    buildStatus(UCode.ABORTED, e.getMessage()));
-            response = FetchSubscribersResponse.newBuilder().setStatus(status).build();
-        }
-        return response;
+    private @NonNull Optional<UUri> getObserver(@NonNull UUri topic) {
+        return mDatabaseHelper.isObserved(topic) ? Optional.of(removeResource(topic)) : Optional.empty();
     }
 
-    /**
-     * registerForNotifications : API called by Publisher to register notifications on the topic
-     * <p>
-     * Check if caller uEntity matches to Topic, else return PERMISSION_DENIED.
-     * If topic is created, update topics table registered flag.
-     * Else return NOT_FOUND status
-     *
-     * @param message - UMessage having NotificationRequest
-     * @return Status - OK if successful
-     */
-    public @NonNull UStatus registerForNotifications(@NonNull UMessage message) {
-        if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_REGISTER_FOR_NOTIFICATIONS, Key.EVENT, stringify(message)));
-        }
-        try {
-            final UPayload payload = message.getPayload();
-            final NotificationsRequest request = unpack(payload, NotificationsRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-
-            final UUri responseUri = message.getAttributes().getSource();
-            final UUri topicUri = request.getTopic();
-            final String topic = toUriString(topicUri);
-            checkSameEntity(topicUri, responseUri);
-            if (isTopicCreated(topic)) {
-                mDatabaseHelper.updateTopic(topic, true);
-                return STATUS_OK;
-            }
-            return logStatus(Log.WARN, METHOD_REGISTER_FOR_NOTIFICATIONS,
-                    buildStatus(UCode.NOT_FOUND, "Topic is not created"), Key.URI, stringify(topicUri));
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_REGISTER_FOR_NOTIFICATIONS, toStatus(e));
-        }
+    public boolean isTopicSubscribed(@NonNull UUri topic) {
+        final State state = getSubscriptionState(topic);
+        return (state == State.SUBSCRIBED) || (state == State.SUBSCRIBE_PENDING);
     }
 
-    /**
-     * unregisterForNotifications : API called by Publisher to unregister notifications on the topic
-     * <p>
-     * Check if caller uEntity matches to Topic, else return PERMISSION_DENIED.
-     * If topic is registered, update topics table registered flag.
-     * Else return NOT_FOUND status
-     *
-     * @param message - UMessage having NotificationRequest
-     * @return Status - OK if successful
-     */
-    public @NonNull UStatus unregisterForNotifications(@NonNull UMessage message) {
-        if (DEBUG) {
-            Log.d(TAG, join(Key.REQUEST, METHOD_UNREGISTER_FOR_NOTIFICATIONS, Key.EVENT, stringify(message)));
-        }
+    public @NonNull State getSubscriptionState(@NonNull UUri topic) {
         try {
-            final UPayload payload = message.getPayload();
-            final NotificationsRequest request = unpack(payload, NotificationsRequest.class)
-                    .orElseThrow(() -> new UStatusException(UCode.INVALID_ARGUMENT, UNEXPECTED_PAYLOAD));
-
-            final UUri responseUri = message.getAttributes().getSource();
-            final UUri topicUri = request.getTopic();
-            final String topic = toUriString(topicUri);
-            checkSameEntity(topicUri, responseUri);
-            if (isRegisteredForNotification(topic)) {
-                mDatabaseHelper.updateTopic(topic, false);
-                return STATUS_OK;
-            }
-            return logStatus(Log.WARN, METHOD_UNREGISTER_FOR_NOTIFICATIONS,
-                    buildStatus(UCode.NOT_FOUND, "Topic was not registered"), Key.URI, stringify(topicUri));
+            return mDatabaseHelper.getSubscriptionState(topic);
         } catch (Exception e) {
-            return logStatus(Log.ERROR, METHOD_UNREGISTER_FOR_NOTIFICATIONS, toStatus(e));
-        }
-    }
-
-    private boolean isRegisteredForNotification(@NonNull String topic) {
-        return mDatabaseHelper.isRegisteredForNotification(topic);
-    }
-
-    /**
-     * Check if the SubscriptionState of a topic is SUBSCRIBED.
-     *
-     * @param topic - topic to be checked
-     * @return true - if topic is SUBSCRIBED or SUBSCRIBE_PENDING
-     */
-    public boolean isTopicSubscribed(@NonNull String topic) {
-        try {
-            int state = getSubscriptionState(topic).getNumber();
-            return (state == State.SUBSCRIBED.getNumber()) || (state == State.SUBSCRIBE_PENDING.getNumber());
-        } catch (Exception e) {
-            logStatus(Log.ERROR, "isTopicSubscribed", toStatus(e));
-            return false;
-        }
-    }
-
-    /**
-     * Function to get subscription state of the given topic
-     *
-     * @param topicName - given topic
-     * @return - SubscriptionState
-     */
-    public @NonNull State getSubscriptionState(@NonNull String topicName) {
-        try {
-            int subscriptionState = mDatabaseHelper.getSubscriptionState(topicName);
-            return (State.forNumber(subscriptionState));
-        } catch (Exception e) {
-            logStatus(Log.ERROR, "getSubscriptionState", toStatus(e));
+            logStatus(Log.ERROR, "getSubscriptionState", toStatus(e), Key.TOPIC, stringify(topic));
             return State.UNSUBSCRIBED;
         }
     }
 
-    /**
-     * Get the publisher of a topic from TOPICS table.
-     *
-     * @param topic - topic to be used to fetch the producer
-     * @return clientId who registered the topic if exists,
-     * empty string otherwise.
-     */
-    public @NonNull UUri getPublisher(@NonNull UUri topic) {
+    public @NonNull Set<SubscriptionData> getSubscriptions(@NonNull UUri topic) {
         try {
-            return toUri(mDatabaseHelper.getPublisher(toUriString(topic)));
+            return mDatabaseHelper.getSubscribersByTopic(topic).stream()
+                    .map(SubscriptionData::new)
+                    .collect(Collectors.toSet());
         } catch (Exception e) {
-            logStatus(Log.ERROR, "getPublisher", toStatus(e));
-            return UUri.getDefaultInstance();
+            logStatus(Log.ERROR, "getSubscriptions", toStatus(e), Key.TOPIC, stringify(topic));
+            return emptySet();
+        }
+    }
+
+    public @NonNull Set<SubscriptionData> getSubscriptionsWithExpiryTime() {
+        try {
+            return mDatabaseHelper.getSubscribersWithExpiryTime().stream()
+                    .map(SubscriptionData::new)
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            logStatus(Log.ERROR, "getSubscriptionsWithExpiryTime", toStatus(e));
+            return emptySet();
+        }
+    }
+
+    public @NonNull List<String> getSubscribedPackages() {
+        try {
+            return mDatabaseHelper.getSubscribedPackages();
+        } catch (Exception e) {
+            logStatus(Log.ERROR, "getSubscribedPackages", toStatus(e));
+            return emptyList();
         }
     }
 }

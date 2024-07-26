@@ -30,13 +30,13 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.os.Binder;
 import android.os.IBinder;
@@ -67,11 +67,6 @@ public class ClientTest extends TestBase {
 
         public TestClient(@NonNull Credentials credentials, @NonNull IBinder token, DeathRecipient recipient) {
             super(credentials, token, recipient);
-        }
-
-        @Override
-        public boolean isInternal() {
-            return true;
         }
 
         @Override
@@ -135,7 +130,7 @@ public class ClientTest extends TestBase {
 
     @Test
     public void testToString() {
-        assertEquals("[pid: 0, uid: 0, package: \"org.eclipse.uprotocol.core.test\", entity: test.app/1, token: " +
+        assertEquals("[pid: 0, uid: 0, package: org.eclipse.uprotocol.core.test, uri: /52/1/0, token: " +
                 stringify(mClient.getToken()) + "]", mClient.toString());
     }
 
@@ -150,11 +145,6 @@ public class ClientTest extends TestBase {
     }
 
     @Test
-    public void testEntity() {
-        assertEquals(mClientUri.getEntity(), mClient.getEntity());
-    }
-
-    @Test
     public void testGetToken() {
         assertEquals(mToken, mClient.getToken());
     }
@@ -165,15 +155,27 @@ public class ClientTest extends TestBase {
     }
 
     @Test
+    public void testIsAlive() {
+        doReturn(true).when(mToken).isBinderAlive();
+        assertTrue(mClient.isAlive());
+        doReturn(false).when(mToken).isBinderAlive();
+        assertFalse(mClient.isAlive());
+    }
+
+    @Test
     public void testIsLocal() {
-        when(mClient.isRemote()).thenReturn(true);
+        doReturn(true).when(mClient).isRemote();
         assertFalse(mClient.isLocal());
-        when(mClient.isRemote()).thenReturn(false);
+        doReturn(false).when(mClient).isRemote();
         assertTrue(mClient.isLocal());
     }
 
     @Test
     public void testIsRemote() {
-        assertFalse(mClient.isRemote());
+        final UUri clientUri = UUri.newBuilder()
+                .setUeId(Client.REMOTE_ID)
+                .build();
+        final Client client = new TestClient(new Credentials(PACKAGE_NAME, 0, 0, clientUri), mToken, mDeathRecipient);
+        assertTrue(client.isRemote());
     }
 }

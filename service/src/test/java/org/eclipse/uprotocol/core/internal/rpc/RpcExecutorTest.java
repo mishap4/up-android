@@ -26,28 +26,30 @@ package org.eclipse.uprotocol.core.internal.rpc;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
-import static org.eclipse.uprotocol.transport.builder.UPayloadBuilder.packToAny;
+import static org.eclipse.uprotocol.communication.UPayload.packToAny;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.os.Binder;
 import android.os.IBinder;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import org.eclipse.uprotocol.communication.CallOptions;
+import org.eclipse.uprotocol.communication.UPayload;
 import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.core.ubus.UBus;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UPayload;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -68,49 +70,46 @@ public class RpcExecutorTest extends TestBase {
 
     @Before
     public void setUp() {
-        mRpcExecutor = new RpcExecutor(mUBus, CLIENT, mClientToken);
-        when(mUBus.send(any(), any())).thenReturn(STATUS_OK);
+        mRpcExecutor = new RpcExecutor(mUBus, CLIENT_URI, mClientToken);
+        doReturn(STATUS_OK).when(mUBus).send(any(), any());
     }
 
     @Test
     public void testEmpty() {
         final RpcExecutor empty = RpcExecutor.empty();
         assertNotNull(empty);
-        final CompletableFuture<UMessage> responseFuture =
+        final CompletableFuture<UPayload> responseFuture =
                 empty.invokeMethod(METHOD_URI, REQUEST_PAYLOAD, OPTIONS).toCompletableFuture();
         assertTrue(responseFuture.isCompletedExceptionally());
         assertFalse(empty.hasPendingRequests());
-        final UMessage responseMessage = buildResponseMessage(buildRequestMessage());
-        empty.onReceive(responseMessage);
+        empty.onReceive(UMessageBuilder.response(METHOD_URI, CLIENT_URI, ID).build());
     }
 
     @Test
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public void testInvokeMethod() throws Exception {
-        final CompletableFuture<UMessage> responseFuture =
+        final CompletableFuture<UPayload> responseFuture =
                 mRpcExecutor.invokeMethod(METHOD_URI, REQUEST_PAYLOAD, OPTIONS).toCompletableFuture();
         assertTrue(mRpcExecutor.hasPendingRequests());
         final ArgumentCaptor<UMessage> captor = ArgumentCaptor.forClass(UMessage.class);
         verify(mUBus, timeout(DELAY_MS).times(1)).send(captor.capture(), any());
         assertFalse(responseFuture.isDone());
-        final UMessage responseMessage = buildResponseMessage(captor.getValue(), RESPONSE_PAYLOAD);
-        mRpcExecutor.onReceive(responseMessage);
-        assertEquals(responseMessage, responseFuture.get(DELAY_MS, TimeUnit.MILLISECONDS));
+        mRpcExecutor.onReceive(UMessageBuilder.response(captor.getValue().getAttributes()).build(RESPONSE_PAYLOAD));
+        assertEquals(RESPONSE_PAYLOAD, responseFuture.get(DELAY_MS, TimeUnit.MILLISECONDS));
         assertTrue(responseFuture.isDone());
         assertFalse(mRpcExecutor.hasPendingRequests());
     }
 
     @Test
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public void testInvokeMethodCommunicationFailure() {
-        final CompletableFuture<UMessage> responseFuture =
+        final CompletableFuture<UPayload> responseFuture =
                 mRpcExecutor.invokeMethod(METHOD_URI, REQUEST_PAYLOAD, OPTIONS).toCompletableFuture();
         assertTrue(mRpcExecutor.hasPendingRequests());
         final ArgumentCaptor<UMessage> captor = ArgumentCaptor.forClass(UMessage.class);
         verify(mUBus, timeout(DELAY_MS).times(1)).send(captor.capture(), any());
         assertFalse(responseFuture.isDone());
-        final UMessage responseMessage = buildFailureResponseMessage(captor.getValue(), UCode.ABORTED);
-        mRpcExecutor.onReceive(responseMessage);
+        mRpcExecutor.onReceive(UMessageBuilder.response(captor.getValue().getAttributes())
+                .withCommStatus(UCode.ABORTED)
+                .build());
         final Exception exception = assertThrows(ExecutionException.class,
                 () -> responseFuture.get(DELAY_MS, TimeUnit.MILLISECONDS));
         assertStatus(UCode.ABORTED, toStatus(exception));
@@ -118,12 +117,11 @@ public class RpcExecutorTest extends TestBase {
     }
 
     @Test
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public void testInvokeMethodSendFailed() {
-        when(mUBus.send(any(), any())).thenReturn(buildStatus(UCode.ABORTED));
-        final CompletableFuture<UMessage> responseFuture =
-                mRpcExecutor.invokeMethod(METHOD_URI, REQUEST_PAYLOAD, OPTIONS).toCompletableFuture();
-        verify(mUBus, timeout(DELAY_MS).times(1)).send(any(), any());
+        doReturn(buildStatus(UCode.ABORTED)).when(mUBus).send(any(), any());
+        final CompletableFuture<UPayload> responseFuture =
+                mRpcExecutor.invokeMethod(METHOD_URI, REQUEST_PAYLOAD, CallOptions.DEFAULT).toCompletableFuture();
+        verify(mUBus, timeout(DELAY_LONG_MS).times(1)).send(any(), any());
         final Exception exception = assertThrows(ExecutionException.class,
                 () -> responseFuture.get(DELAY_MS, TimeUnit.MILLISECONDS));
         assertStatus(UCode.ABORTED, toStatus(exception));
@@ -132,14 +130,14 @@ public class RpcExecutorTest extends TestBase {
 
     @Test
     public void testResponseListenerUnexpectedType() {
-        mRpcExecutor.onReceive(buildPublishMessage());
+        mRpcExecutor.onReceive(UMessageBuilder.publish(RESOURCE_URI).build());
         assertFalse(mRpcExecutor.hasPendingRequests());
     }
 
     @Test
     public void testResponseListenerUnexpectedResponse() {
         mRpcExecutor.invokeMethod(METHOD_URI, PAYLOAD, OPTIONS);
-        mRpcExecutor.onReceive(buildResponseMessage(buildRequestMessage()));
+        mRpcExecutor.onReceive(UMessageBuilder.response(METHOD_URI, CLIENT_URI, ID).build());
         assertTrue(mRpcExecutor.hasPendingRequests());
     }
 }

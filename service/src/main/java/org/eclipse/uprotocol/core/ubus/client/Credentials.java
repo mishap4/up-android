@@ -25,39 +25,7 @@ package org.eclipse.uprotocol.core.ubus.client;
 
 import androidx.annotation.NonNull;
 
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UUri;
 
-public final class Credentials {
-    private final String mPackageName;
-    private final int mPid;
-    private final int mUid;
-    private final UUri mUri;
-
-    public Credentials(@NonNull String packageName, int pid, int uid, @NonNull UUri uri) {
-        mPackageName = packageName;
-        mPid = pid;
-        mUid = uid;
-        mUri = uri;
-    }
-
-    public @NonNull String getPackageName() {
-        return mPackageName;
-    }
-
-    public int getPid() {
-        return mPid;
-    }
-
-    public int getUid() {
-        return mUid;
-    }
-
-    public @NonNull UUri getUri() {
-        return mUri;
-    }
-
-    public @NonNull UEntity getEntity() {
-        return mUri.getEntity();
-    }
+public record Credentials(@NonNull String packageName, int pid, int uid, @NonNull UUri uri) {
 }

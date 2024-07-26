@@ -21,38 +21,37 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State
+import org.eclipse.uprotocol.v1.UUID
+import org.eclipse.uprotocol.v1.UUri
 
 @Dao
-interface SubscriptionDao {
+interface SubscriptionsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun addSubscription(subscription: SubscriptionsRecord): Long
+    fun addSubscription(subscription: SubscriptionRecord): Long
 
     @Query("DELETE FROM subscriptions WHERE topic = :topic")
-    fun deleteTopic(topic: String)
-
-    @Query("SELECT COUNT(*) FROM subscriptions WHERE state = -1")
-    fun getDeprecatedTopicsCount(): Int
+    fun deleteSubscription(topic: UUri): Int
 
     @Query("SELECT state FROM subscriptions WHERE topic = :topic")
-    fun getSubscriptionState(topic: String): Int
+    fun getState(topic: UUri): State?
 
     @Query("UPDATE subscriptions SET state = :state WHERE topic = :topic")
-    fun updateState(topic: String, state: Int)
+    fun updateState(topic: UUri, state: State): Int
 
     @Query("SELECT topic FROM subscriptions WHERE requestId = :requestId")
-    fun getTopic(requestId: String): String
+    fun getTopic(requestId: UUID): String?
 
     @Query("SELECT topic FROM subscriptions WHERE state = 1 or state = 2")
     fun getSubscribedTopics(): List<String>
 
     @Query("SELECT * FROM subscriptions WHERE state = 1 or state = 3")
-    fun getPendingTopics(): List<SubscriptionsRecord>
+    fun getPendingSubscriptions(): List<SubscriptionRecord>
 }

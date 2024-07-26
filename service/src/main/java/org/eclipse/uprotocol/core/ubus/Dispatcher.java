@@ -31,19 +31,15 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.addSinkIfEmpty;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.removeSink;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.checkTopicUriValid;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isMethodUri;
+import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isLocalUri;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isRemoteUri;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isSameClient;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.toUri;
 import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
-import static org.eclipse.uprotocol.core.ubus.UBusManager.FLAG_BLOCK_AUTO_FETCH;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.hasWildcard;
 import static org.eclipse.uprotocol.uri.validator.UriValidator.isEmpty;
-import static org.eclipse.uprotocol.uuid.factory.UuidUtils.isExpired;
-
-import static java.util.Collections.emptyList;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isRpcMethod;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isRpcResponse;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isTopic;
 
 import android.util.Log;
 
@@ -54,29 +50,32 @@ import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.ubus.client.Client;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager.RegistrationListener;
+import org.eclipse.uprotocol.core.usubscription.SubscriptionData;
 import org.eclipse.uprotocol.core.usubscription.SubscriptionListener;
 import org.eclipse.uprotocol.core.usubscription.USubscription;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
 import org.eclipse.uprotocol.core.usubscription.v3.Update;
 import org.eclipse.uprotocol.core.utwin.UTwin;
+import org.eclipse.uprotocol.uri.serializer.UriSerializer;
+import org.eclipse.uprotocol.uri.validator.UriFilter;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UMessageType;
 import org.eclipse.uprotocol.v1.UStatus;
+import org.eclipse.uprotocol.v1.UUID;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.io.PrintWriter;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class Dispatcher extends UBus.Component {
     private static final int DISPATCH_RETRY_DELAY_MS = 50;
-    private static final UUri EMPTY_URI = UUri.getDefaultInstance();
 
     private final RpcHandler mRpcHandler;
     private final ScheduledExecutorService mExecutor = Executors.newScheduledThreadPool(1);
@@ -85,24 +84,9 @@ public class Dispatcher extends UBus.Component {
     private UTwin mUTwin;
     private USubscription mUSubscription;
     private ClientManager mClientManager;
+    private ThrottlingMonitor mThrottlingMonitor;
 
-    private final SubscriptionListener mSubscriptionListener = new SubscriptionListener() {
-        @Override
-        public void onSubscriptionChanged(@NonNull Update update) {
-            handleSubscriptionChange(update);
-        }
-
-        @Override
-        public void onTopicCreated(@NonNull UUri topic, @NonNull UUri publisher) {
-            mSubscriptionCache.addTopic(topic, publisher);
-        }
-
-        @Override
-        public void onTopicDeprecated(@NonNull UUri topic) {
-            mSubscriptionCache.removeTopic(topic);
-            mUTwin.removeMessage(topic);
-        }
-    };
+    private final SubscriptionListener mSubscriptionListener = this::handleSubscriptionChange;
 
     private final RegistrationListener mClientRegistrationListener = new RegistrationListener() {
         @Override
@@ -110,16 +94,6 @@ public class Dispatcher extends UBus.Component {
             mLinkedClients.unlinkFromDispatch(client);
         }
     };
-
-    @VisibleForTesting
-    @NonNull SubscriptionListener getSubscriptionListener() {
-        return mSubscriptionListener;
-    }
-
-    @VisibleForTesting
-    @NonNull RegistrationListener getClientRegistrationListener() {
-        return mClientRegistrationListener;
-    }
 
     public Dispatcher() {
         mRpcHandler = new RpcHandler();
@@ -136,6 +110,7 @@ public class Dispatcher extends UBus.Component {
         mUSubscription = components.getUCore().getUSubscription();
         mSubscriptionCache.setService(mUSubscription);
         mClientManager = components.getClientManager();
+        mThrottlingMonitor = components.getThrottlingMonitor();
 
         mRpcHandler.init(components);
         mUSubscription.registerListener(mSubscriptionListener);
@@ -148,7 +123,6 @@ public class Dispatcher extends UBus.Component {
     }
 
     @Override
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public void shutdown() {
         mRpcHandler.shutdown();
         mExecutor.shutdown();
@@ -171,70 +145,74 @@ public class Dispatcher extends UBus.Component {
         mSubscriptionCache.clear();
     }
 
+    @VisibleForTesting
     @NonNull SubscriptionCache getSubscriptionCache() {
         return mSubscriptionCache;
     }
 
-    public @NonNull List<UMessage> pull(@NonNull UUri uri, int count, @NonNull Client client) {
+    @VisibleForTesting
+    @NonNull SubscriptionListener getSubscriptionListener() {
+        return mSubscriptionListener;
+    }
+
+    @VisibleForTesting
+    @NonNull RegistrationListener getClientRegistrationListener() {
+        return mClientRegistrationListener;
+    }
+
+    public @NonNull ScheduledExecutorService getExecutor() {
+        return mExecutor;
+    }
+
+    public Client getCaller(@NonNull UUID requestId) {
+        return mRpcHandler.getCaller(requestId);
+    }
+
+    public @NonNull UStatus enableDispatching(@NonNull UriFilter filter, @NonNull Client client) {
         try {
-            checkTopicUriValid(uri);
-            checkArgument(count > 0, "Count is negative");
-            if (mSubscriptionCache.isTopicSubscribed(uri, client.getUri())) {
-                final UMessage message = mUTwin.getMessage(uri);
-                return (message != null) ? List.of(message) : emptyList();
+            if (client.isRemote() && hasWildcard(filter.sink()) && hasWildcard(filter.source())) {
+                // All messages with remote authority are sent to remote client by default
+                return STATUS_OK;
             }
+            if (isTopic(filter.source()) && !hasWildcard(filter.source())) {
+                checkAuthority(filter.sink(), client);
+                mLinkedClients.linkToDispatch(filter.source(), client);
+                return STATUS_OK;
+            }
+            if (isRpcMethod(filter.sink())) {
+                return mRpcHandler.registerServer(filter.sink(), client);
+            }
+            if (isRpcResponse(filter.sink())) {
+                checkAuthority(filter.sink(), client);
+                return STATUS_OK;
+            }
+            return buildStatus(UCode.INVALID_ARGUMENT, "Invalid or unsupported filter");
         } catch (Exception e) {
-            logStatus(Log.ERROR, "pull", toStatus(e), Key.URI, stringify(uri), Key.CLIENT, client);
-        }
-        return emptyList();
-    }
-
-    public @NonNull UStatus enableDispatching(@NonNull UUri uri, int flags, @NonNull Client client) {
-        if (isMethodUri(uri)) {
-            return mRpcHandler.registerServer(uri, client);
-        } else {
-            return enableGenericDispatching(uri, flags, client);
+            return toStatus(e);
         }
     }
 
-    public @NonNull UStatus disableDispatching(@NonNull UUri uri, int flags, @NonNull Client client) {
-        if (isMethodUri(uri)) {
-            return mRpcHandler.unregisterServer(uri, client);
-        } else {
-            return disableGenericDispatching(uri, flags, client);
-        }
-    }
-
-    static boolean shouldAutoFetch(int flags) {
-        return (flags & FLAG_BLOCK_AUTO_FETCH) == 0;
-    }
-
-    private @NonNull UStatus enableGenericDispatching(@NonNull UUri topic, int flags, @NonNull Client client) {
+    public @NonNull UStatus disableDispatching(@NonNull UriFilter filter, @NonNull Client client) {
         try {
-            checkTopicUriValid(topic);
-            mLinkedClients.linkToDispatch(topic, client);
-            if (VERBOSE) {
-                logStatus(Log.VERBOSE, "enableDispatching", STATUS_OK, Key.URI, stringify(topic), Key.CLIENT, client);
+            if (client.isRemote() && hasWildcard(filter.sink()) && hasWildcard(filter.source())) {
+                // All messages with remote authority are sent to remote client by default
+                return STATUS_OK;
             }
-            if (shouldAutoFetch(flags) && mSubscriptionCache.isTopicSubscribed(topic, client.getUri())) {
-                dispatchToAsync(mUTwin.getMessage(topic), client);
+            if (isTopic(filter.source()) && !hasWildcard(filter.source())) {
+                checkAuthority(filter.sink(), client);
+                mLinkedClients.unlinkFromDispatch(filter.source(), client);
+                return STATUS_OK;
             }
-            return STATUS_OK;
+            if (isRpcMethod(filter.sink())) {
+                return mRpcHandler.unregisterServer(filter.sink(), client);
+            }
+            if (isRpcResponse(filter.sink())) {
+                checkAuthority(filter.sink(), client);
+                return STATUS_OK;
+            }
+            return buildStatus(UCode.INVALID_ARGUMENT, "Invalid filter");
         } catch (Exception e) {
-            return logStatus(Log.ERROR, "enableDispatching", toStatus(e), Key.URI, stringify(topic), Key.CLIENT, client);
-        }
-    }
-
-    private @NonNull UStatus disableGenericDispatching(@NonNull UUri topic, int ignored, @NonNull Client client) {
-        try {
-            checkTopicUriValid(topic);
-            mLinkedClients.unlinkFromDispatch(topic, client);
-            if (VERBOSE) {
-                logStatus(Log.VERBOSE, "disableDispatching", STATUS_OK, Key.URI, stringify(topic), Key.CLIENT, client);
-            }
-            return STATUS_OK;
-        } catch (Exception e) {
-            return logStatus(Log.ERROR, "disableDispatching", toStatus(e), Key.URI, stringify(topic), Key.CLIENT, client);
+            return toStatus(e);
         }
     }
 
@@ -243,12 +221,12 @@ public class Dispatcher extends UBus.Component {
         return switch (type) {
             case UMESSAGE_TYPE_REQUEST -> mRpcHandler.handleRequestMessage(message, client);
             case UMESSAGE_TYPE_RESPONSE -> mRpcHandler.handleResponseMessage(message, client);
-            case UMESSAGE_TYPE_PUBLISH, UMESSAGE_TYPE_NOTIFICATION -> handleGenericMessage(message, client);
+            case UMESSAGE_TYPE_PUBLISH -> handlePublishMessage(message, client);
+            case UMESSAGE_TYPE_NOTIFICATION -> handleNotificationMessage(message, client);
             default -> buildStatus(UCode.UNIMPLEMENTED, "Message type '" + type + "' is not supported");
         };
     }
 
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public boolean dispatchTo(UMessage message, @NonNull Client client) {
         if (message == null) {
             return false;
@@ -269,7 +247,7 @@ public class Dispatcher extends UBus.Component {
             }
         }
         if (isOk(status)) {
-            if (TRACE_EVENTS) {
+            if (VERBOSE) {
                 logStatus(Log.VERBOSE, "dispatch", status, Key.MESSAGE, stringify(message), Key.CLIENT, client);
             }
             return true;
@@ -279,40 +257,39 @@ public class Dispatcher extends UBus.Component {
         }
     }
 
-    private void dispatchToAsync(UMessage message, @NonNull Client client) {
-        if (message != null) {
-            mExecutor.execute(() -> dispatchTo(message, client));
-        }
-    }
-
     @VisibleForTesting
-    void dispatch(UMessage message, @NonNull UUri sinkOrEmpty) {
+    void dispatch(UMessage message) {
         if (message == null) {
             return;
         }
         final UUri source = message.getAttributes().getSource();
+        final UUri sink = message.getAttributes().getSink();
         final Client remoteClient = mClientManager.getRemoteClient();
-        final LinkedList<Client> clients = new LinkedList<>();
-        final LinkedList<UUri> remoteSinks = new LinkedList<>();
-        final Set<UUri> sinks = isEmpty(sinkOrEmpty) ?
-                mSubscriptionCache.getSubscribers(source) : Set.of(sinkOrEmpty);
-        sinks.forEach(sink -> {
-            if (isRemoteUri(sink)) {
-                remoteSinks.add(sink);
-            } else {
-                mLinkedClients.getClients(source, sink, Collectors.toCollection(() -> clients));
+        final Set<Client> clients = new HashSet<>();
+        final Consumer<SubscriptionData> subscriptionProcessor = it -> {
+            if (isLocalUri(it.subscriber())) {
+                mLinkedClients.getClients(it.topic(), it.subscriber(), Collectors.toCollection(() -> clients));
+            } else if (remoteClient != null) {
+                if (mThrottlingMonitor.canProceed(message, it)) {
+                    clients.add(remoteClient);
+                } else if (VERBOSE) {
+                    Log.v(TAG, join(Key.MESSAGE, "Throttling event", Key.EVENT, stringify(message)));
+                }
             }
-        });
+        };
+        final Consumer<UUri> sinkProcessor = it -> {
+            if (isLocalUri(it)) {
+                mLinkedClients.getClients(source, it, Collectors.toCollection(() -> clients));
+            } else if (remoteClient != null) {
+                clients.add(remoteClient);
+            }
+        };
+        if (isEmpty(sink)) {
+            mSubscriptionCache.getSubscriptions(source).forEach(subscriptionProcessor);
+        } else {
+            sinkProcessor.accept(sink);
+        }
         clients.forEach(client -> dispatchTo(message, client));
-        if (remoteClient != null) {
-            remoteSinks.forEach(sink -> dispatchTo(addSinkIfEmpty(message, sink), remoteClient));
-        }
-    }
-
-    private void dispatchAsync(UMessage message, @NonNull UUri sinkOrEmpty) {
-        if (message != null) {
-            mExecutor.execute(() -> dispatch(message, sinkOrEmpty));
-        }
     }
 
     public static void checkAuthority(@NonNull UUri uri, @NonNull Client client) {
@@ -326,33 +303,11 @@ public class Dispatcher extends UBus.Component {
         }
     }
 
-    private static boolean isRemoteBroadcast(@NonNull UUri source, @NonNull UUri sink) {
-        return isRemoteUri(source) &&
-                !source.getEntity().getName().equals(USubscription.SERVICE.getName()) &&
-                sink.getEntity().getName().equals(USubscription.SERVICE.getName());
-    }
-
-    private @NonNull UStatus handleGenericMessage(@NonNull UMessage message, @NonNull Client client) {
-        final UUri topic = message.getAttributes().getSource();
+    private @NonNull UStatus handlePublishMessage(@NonNull UMessage message, @NonNull Client client) {
         try {
-            checkAuthority(topic, client);
-            checkArgument(!isExpired(message.getAttributes()), UCode.DEADLINE_EXCEEDED, "Event expired");
-
-            UUri sink = message.getAttributes().getSink();
-            if (isRemoteBroadcast(topic, sink)) {
-                message = removeSink(message);
-                sink = EMPTY_URI;
-            }
-            if (!isEmpty(sink)) {
-                dispatchAsync(message, sink);
-                return STATUS_OK;
-            }
-            if (client.isLocal()) {
-                checkArgument(client.getUri().equals(mSubscriptionCache.getPublisher(topic)), UCode.NOT_FOUND,
-                        "Topic was not created by this client");
-            }
+            checkAuthority(message.getAttributes().getSource(), client);
             if (mUTwin.addMessage(message)) {
-                dispatch(message, EMPTY_URI);
+                dispatch(message);
             }
             return STATUS_OK;
         } catch (Exception e) {
@@ -360,26 +315,30 @@ public class Dispatcher extends UBus.Component {
         }
     }
 
-    @SuppressWarnings("java:S3398")
+    private @NonNull UStatus handleNotificationMessage(@NonNull UMessage message, @NonNull Client client) {
+        try {
+            checkAuthority(message.getAttributes().getSource(), client);
+            dispatch(message);
+            return STATUS_OK;
+        } catch (Exception e) {
+            return toStatus(e);
+        }
+    }
+
     private void handleSubscriptionChange(@NonNull Update update) {
         if (DEBUG) {
             Log.d(TAG, join(Key.EVENT, "Subscription changed", Key.SUBSCRIPTION, stringify(update)));
         }
-        final UUri topic = update.getTopic();
-        final UUri clientUri = update.getSubscriber().getUri();
-        if (isEmpty(topic) || isEmpty(clientUri)) {
+        final SubscriptionData subscription = new SubscriptionData(update);
+        if (isEmpty(subscription.topic()) || isEmpty(subscription.subscriber())) {
             return;
         }
         if (update.getStatus().getState() == SubscriptionStatus.State.SUBSCRIBED) {
-            mSubscriptionCache.addSubscriber(topic, clientUri);
-            dispatchAsync(mUTwin.getMessage(topic), clientUri);
+            mSubscriptionCache.addSubscription(subscription);
         } else {
-            mSubscriptionCache.removeSubscriber(topic, clientUri);
+            mSubscriptionCache.removeSubscription(subscription);
+            mThrottlingMonitor.removeTracker(subscription);
         }
-    }
-
-    public @NonNull ScheduledExecutorService getExecutor() {
-        return mExecutor;
     }
 
     @VisibleForTesting
@@ -392,7 +351,7 @@ public class Dispatcher extends UBus.Component {
         if (args.length > 0) {
             if ("-t".equals(args[0])) {
                 if (args.length > 1) {
-                    dumpTopic(writer, toUri(args[1]));
+                    dumpTopic(writer, UriSerializer.deserialize(args[1]));
                     return;
                 }
             } else {

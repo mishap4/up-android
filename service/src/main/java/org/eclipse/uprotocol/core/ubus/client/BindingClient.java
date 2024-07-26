@@ -46,11 +46,6 @@ public abstract class BindingClient<T extends IInterface> extends Client {
     }
 
     @Override
-    public boolean isInternal() {
-        return false;
-    }
-
-    @Override
     public @NonNull T getListener() {
         return mListener;
     }

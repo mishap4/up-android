@@ -21,39 +21,26 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import org.eclipse.uprotocol.v1.UUri
 
 @Dao
-interface TopicsDao {
+interface ObserversDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun addTopic(event: TopicsRecord): Long
+    fun addObserver(observer: ObserverRecord): Long
 
-    @Query("DELETE FROM topics WHERE topic = :topic ")
-    fun deleteTopic(topic: String): Int
+    @Query("DELETE FROM observers WHERE topic = :topic")
+    fun deleteObserver(topic: UUri): Int
 
-    @Query("SELECT COUNT(*) FROM topics")
-    fun getActiveTopicsCount(): Int
+    @Query("SELECT EXISTS(SELECT * FROM observers WHERE topic = :topic)")
+    fun isObserved(topic: UUri): Boolean
 
-    @Query("SELECT EXISTS(SELECT * FROM topics WHERE topic = :topic)")
-    fun isTopicCreated(topic: String): Boolean
-
-    @Query("SELECT publisher FROM topics WHERE topic = :topic")
-    fun getPublisher(topic: String): String
-
-    @Query("UPDATE topics SET isRegisterForNotification = :isRegister WHERE " +
-           "topic = :topic AND isRegisterForNotification != :isRegister")
-    fun updateTopicTable(topic: String, isRegister: Boolean)
-
-    @Query("SELECT isRegisterForNotification FROM topics WHERE topic = :topic")
-    fun isRegisteredForNotification(topic: String): Boolean
-
-    @Query("SELECT publisher FROM topics WHERE topic = :topic AND isRegisterForNotification = 1")
-    fun getPublisherIfRegistered(topic: String): String
+    @Query("SELECT topic FROM observers")
+    fun getObservedTopics(): List<String>
 }

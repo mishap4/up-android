@@ -9,20 +9,21 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 [versions]
-android = "8.2.+"
-android-material = "1.6.+"
-androidx-junit = "1.1.5"
-androidx-ktx = "1.6.0"
+android = "8.5.+"
+android-material = "1.12.0"
+androidx-junit = "1.2.1"
+androidx-ktx = "1.13.1"
 junit = "4.13.2"
-kotlin = "1.9.21"
-kotlinx-coroutines = "1.7.1"
-ksp = "1.9.21-1.0.15"
-mockito = "4.6.1"
-robolectric = "4.7.3"
-room = "2.4.2"
+kotlin = "2.0.10"
+kotlinx-coroutines = "1.7.3"
+ksp = "2.0.10-1.0.24"
+mockito = "5.5.0"
+mockito-inline = "5.2.0"
+robolectric = "4.12.1"
+room = "2.6.1"
 room-testing = "1.1.1"
-up-client-android-java = "v0.1.1-dev"
-up-java = "0.1.9"
+up-transport-android-java = "1.0.+"
+up-java = "2.0.+"
 
 [libraries]
 android-material = { module = "com.google.android.material:material", version.ref = "android-material" }
@@ -32,12 +33,12 @@ junit = { module = "junit:junit", version.ref = "junit" }
 kotlin-stdlib = { module =  "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
-mockito-inline = { module = "org.mockito:mockito-inline", version.ref = "mockito" }
+mockito-inline = { module = "org.mockito:mockito-inline", version.ref = "mockito-inline" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-testing = { module = "android.arch.persistence.room:testing", version.ref = "room-testing" }
-up-client-android-java = { module = "com.github.eclipse-uprotocol:up-client-android-java", version.ref = "up-client-android-java" }
+up-transport-android-java = { module = "org.eclipse.uprotocol:up-transport-android-java", version.ref = "up-transport-android-java" }
 up-java = { module = "org.eclipse.uprotocol:up-java", version.ref = "up-java" }
 
 [plugins]

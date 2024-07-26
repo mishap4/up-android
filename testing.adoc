@@ -22,13 +22,6 @@ NOTE: Applications included in this project should be installed as privileged on
 You may launch an emulator that uses your AVD from "Device Manager" by clicking "Start" button next to it or from the console with commands below.
 
 To get the name of your AVD:
-
-Linux:
-[,bash]
-----
-emulator --list-avds
-----
-Windows:
 [,bash]
 ----
 emulator -list-avds
@@ -41,13 +34,6 @@ emulator @YourAVDName
 ----
 
 Or with writable system image:
-
-Linux:
-[,bash]
-----
-emulator @YourAVDName --writable-system
-----
-Windows:
 [,bash]
 ----
 emulator @YourAVDName -writable-system

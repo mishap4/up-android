@@ -23,26 +23,26 @@
  */
 package org.eclipse.uprotocol.core.ubus;
 
+import static com.google.protobuf.util.Timestamps.fromMillis;
+
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.replaceSink;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.addAuthority;
-import static org.eclipse.uprotocol.core.ubus.UBusManager.FLAG_BLOCK_AUTO_FETCH;
+import static org.eclipse.uprotocol.uri.factory.UriFactory.ANY;
+import static org.eclipse.uprotocol.uri.factory.UriFactory.WILDCARD_RESOURCE_ID;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.content.Context;
 import android.os.Binder;
@@ -56,14 +56,19 @@ import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.core.UCore;
 import org.eclipse.uprotocol.core.ubus.client.Client;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager;
+import org.eclipse.uprotocol.core.usubscription.SubscriptionData;
 import org.eclipse.uprotocol.core.usubscription.SubscriptionListener;
 import org.eclipse.uprotocol.core.usubscription.USubscription;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscribeAttributes;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
 import org.eclipse.uprotocol.core.usubscription.v3.Update;
 import org.eclipse.uprotocol.core.utwin.UTwin;
 import org.eclipse.uprotocol.transport.UListener;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
+import org.eclipse.uprotocol.uri.validator.UriFilter;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UUri;
 import org.junit.Before;
@@ -82,6 +87,7 @@ public class DispatcherTest extends TestBase {
     private ClientManager mClientManager;
     private RpcHandler mRpcHandler;
     private Dispatcher mDispatcher;
+    private ThrottlingMonitor mThrottlingMonitor;
     private SubscriptionListener mSubscriptionListener;
     private SubscriptionCache mSubscriptionCache;
     private Client mClient;
@@ -96,9 +102,10 @@ public class DispatcherTest extends TestBase {
         mClientManager = spy(new ClientManager(context));
         mRpcHandler = mock(RpcHandler.class);
         mDispatcher = new Dispatcher(mRpcHandler);
+        mThrottlingMonitor = spy(new ThrottlingMonitor());
 
         final UCore uCore = newMockUCoreBuilder(context)
-                .setUBus(new UBus(context, mClientManager, mDispatcher))
+                .setUBus(new UBus(context, mClientManager, mDispatcher, mThrottlingMonitor))
                 .setUTwin(mUTwin)
                 .setUSubscription(mUSubscription)
                 .build();
@@ -106,57 +113,73 @@ public class DispatcherTest extends TestBase {
 
         mSubscriptionListener = mDispatcher.getSubscriptionListener();
         mSubscriptionCache = mDispatcher.getSubscriptionCache();
-        mClient = registerNewClient(CLIENT);
-        mServer = registerNewClient(SERVICE);
+        mClient = registerNewClient(CLIENT_URI);
+        mServer = registerNewClient(SERVICE_URI);
     }
 
     private static void setLogLevel(int level) {
         UBus.Component.DEBUG = (level <= Log.DEBUG);
         UBus.Component.VERBOSE = (level <= Log.VERBOSE);
-        UBus.Component.TRACE_EVENTS = (level <= Log.VERBOSE);
     }
 
-    private Client registerNewClient(@NonNull UEntity entity) {
-        return registerNewClient(entity, new Binder(), mock(UListener.class));
+    @SuppressWarnings("SameParameterValue")
+    private void waitAsyncCompletion(long timeout) {
+        try {
+            mDispatcher.getExecutor().submit(() -> {}).get(timeout, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            fail(e.getMessage());
+        }
     }
 
-    private <T> Client registerNewClient(@NonNull UEntity entity, @NonNull IBinder clientToken, @NonNull T listener) {
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, entity, clientToken, listener));
+    private Client registerNewClient(@NonNull UUri clientUri) {
+        return registerNewClient(clientUri, new Binder(), mock(UListener.class));
+    }
+
+    private <T> Client registerNewClient(@NonNull UUri clientUri, @NonNull IBinder clientToken, @NonNull T listener) {
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, clientUri, clientToken, listener));
+        final Client client = mClientManager.getClient(clientToken);
+        assertNotNull(client);
+        return client;
+    }
+
+    private @NonNull Client registerRemoteServer(@NonNull IBinder clientToken) {
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_CLIENT_URI, clientToken, mock(UListener.class)));
         final Client client = mClientManager.getClient(clientToken);
         assertNotNull(client);
         return client;
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    private @NonNull Client registerRemoteServer(@NonNull IBinder clientToken) {
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_SERVER, clientToken, mock(UListener.class)));
-        final Client client = mClientManager.getClient(clientToken);
-        assertNotNull(client);
-        return client;
-    }
-
     private @NonNull Client registerReceiver(@NonNull UUri topic, @NonNull final Client client, boolean shouldSubscribe) {
         if (shouldSubscribe) {
-            injectSubscription(topic, client.getUri());
+            injectSubscription(new SubscriptionData(topic, client.getUri()));
         }
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(topic, 0, client));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(new UriFilter(topic, ANY), client));
         return client;
     }
 
-    private void injectTopic(@NonNull UUri topic, @NonNull UUri publisher) {
-        when(mUSubscription.getPublisher(topic)).thenReturn(publisher);
+    private void injectSubscription(@NonNull SubscriptionData subscription) {
+        doReturn(Set.of(subscription)).when(mUSubscription).getSubscriptions(subscription.topic());
     }
 
-    private void injectSubscription(@NonNull UUri topic, @NonNull UUri subscriber) {
-        when(mUSubscription.getSubscribers(topic)).thenReturn(Set.of(subscriber));
-    }
-
-    private static @NonNull Update buildUpdate(@NonNull UUri topic, @NonNull UUri clientUri, @NonNull State state) {
+    private static @NonNull Update buildUpdate(@NonNull SubscriptionData subscription, @NonNull State state) {
         return Update.newBuilder()
-                .setTopic(topic)
-                .setSubscriber(buildSubscriber(clientUri))
-                .setStatus(buildSubscriptionStatus(state))
+                .setTopic(subscription.topic())
+                .setSubscriber(SubscriberInfo.newBuilder()
+                        .setUri(subscription.subscriber()))
+                .setStatus(SubscriptionStatus.newBuilder()
+                        .setState(state))
+                .setAttributes(SubscribeAttributes.newBuilder()
+                        .setExpire(fromMillis(subscription.expiryTime()))
+                        .setSamplePeriodMs(subscription.samplingPeriod()))
                 .build();
+    }
+
+    private static void assertEqualsExt(SubscriptionData expected, SubscriptionData actual) {
+        assertEquals(expected, actual);
+        assertEquals(expected.samplingPeriod(), actual.samplingPeriod());
     }
 
     private void verifyMessageReceived(UMessage message, int times, @NonNull Client client) {
@@ -239,104 +262,59 @@ public class DispatcherTest extends TestBase {
     @Test
     public void testOnSubscriptionChanged() {
         setLogLevel(Log.INFO);
-        injectSubscription(RESOURCE_URI, CLIENT_URI);
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(RESOURCE_URI, CLIENT_URI, State.SUBSCRIBED));
-        assertTrue(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(RESOURCE_URI, CLIENT_URI, State.UNSUBSCRIBED));
-        assertFalse(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
+
+        SubscriptionData subscription = new SubscriptionData(RESOURCE_URI, CLIENT_URI);
+        injectSubscription(subscription);
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(subscription, State.SUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
+
+        subscription = new SubscriptionData(RESOURCE_URI, CLIENT_URI, 0, 100);
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(subscription, State.SUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
+
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(subscription, State.UNSUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertFalse(mSubscriptionCache.getSubscriptions(subscription.topic()).contains(subscription));
+        verify(mThrottlingMonitor, times(1)).removeTracker(subscription);
     }
 
     @Test
     public void testOnSubscriptionChangedNegative() {
-        injectSubscription(RESOURCE_URI, CLIENT_URI);
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(RESOURCE_URI, CLIENT_URI, State.SUBSCRIBED));
-        assertTrue(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
+        SubscriptionData subscription = new SubscriptionData(RESOURCE_URI, CLIENT_URI);
+        injectSubscription(subscription);
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(subscription, State.SUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
 
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(EMPTY_URI, CLIENT_URI, State.UNSUBSCRIBED));
-        assertTrue(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
+        SubscriptionData invalidSubscription = new SubscriptionData(EMPTY_URI, subscription.subscriber());
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(invalidSubscription, State.UNSUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
 
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(RESOURCE_URI, EMPTY_URI, State.UNSUBSCRIBED));
-        assertTrue(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
+        invalidSubscription = new SubscriptionData(subscription.topic(), EMPTY_URI);
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(invalidSubscription, State.UNSUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
 
-        mSubscriptionListener.onSubscriptionChanged(buildUpdate(EMPTY_URI, EMPTY_URI, State.UNSUBSCRIBED));
-        assertTrue(mSubscriptionCache.getSubscribers(RESOURCE_URI).contains(CLIENT_URI));
-    }
-
-    @Test
-    public void testOnTopicChanged() {
-        mSubscriptionListener.onTopicCreated(RESOURCE_URI, SERVER_URI);
-        assertTrue(mSubscriptionCache.isTopicCreated(RESOURCE_URI, SERVER_URI));
-        mSubscriptionListener.onTopicDeprecated(RESOURCE_URI);
-        assertFalse(mSubscriptionCache.isTopicCreated(RESOURCE_URI, SERVER_URI));
-    }
-
-    @Test
-    public void testOnTopicDeleted() {
-        mSubscriptionListener.onTopicCreated(RESOURCE_URI, SERVER_URI);
-        assertTrue(mSubscriptionCache.isTopicCreated(RESOURCE_URI, SERVER_URI));
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
-        assertTrue(mUTwin.addMessage(message));
-        assertEquals(message, mUTwin.getMessage(RESOURCE_URI));
-
-        mSubscriptionListener.onTopicDeprecated(RESOURCE_URI);
-        assertFalse(mSubscriptionCache.isTopicCreated(RESOURCE_URI, SERVER_URI));
-        assertNull(mUTwin.getMessage(RESOURCE_URI));
+        invalidSubscription = new SubscriptionData(EMPTY_URI, EMPTY_URI);
+        mSubscriptionListener.onSubscriptionChanged(buildUpdate(invalidSubscription, State.UNSUBSCRIBED));
+        waitAsyncCompletion(DELAY_MS);
+        assertEqualsExt(subscription, mSubscriptionCache.getSubscriptions(subscription.topic()).iterator().next());
     }
 
     @Test
     public void testOnClientUnregistered() {
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_URI, 0, mClient));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_FILTER, mClient));
         assertTrue(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
         mClientManager.unregisterClient(mClient.getToken());
         assertFalse(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
     }
 
     @Test
-    public void testPull() {
-        injectSubscription(RESOURCE_URI, CLIENT_URI);
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
-        assertTrue(mUTwin.addMessage(message));
-        assertTrue(mDispatcher.pull(RESOURCE_URI, 1, mClient).contains(message));
-    }
-
-    @Test
-    public void testPullNotSubscribed() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
-        assertTrue(mUTwin.addMessage(message));
-        assertFalse(mDispatcher.pull(RESOURCE_URI, 1, mClient).contains(message));
-        setLogLevel(Log.INFO);
-        assertFalse(mDispatcher.pull(RESOURCE_URI, 1, mClient).contains(message));
-    }
-
-    @Test
-    public void testPullExpired() {
-        injectSubscription(RESOURCE_URI, CLIENT_URI);
-        final UMessage message = buildPublishMessage(RESOURCE_URI, 100);
-        assertTrue(mUTwin.addMessage(message));
-        assertTrue(mDispatcher.pull(RESOURCE_URI, 1, mClient).contains(message));
-        sleep(200);
-        assertFalse(mDispatcher.pull(RESOURCE_URI, 1, mClient).contains(message));
-    }
-
-    @Test
-    @SuppressWarnings("DataFlowIssue")
-    public void testPullNegative() {
-        testPull();
-        assertTrue(mDispatcher.pull(null, 1, mClient).isEmpty());
-        assertTrue(mDispatcher.pull(EMPTY_URI, 1, mClient).isEmpty());
-        assertTrue(mDispatcher.pull(RESOURCE_URI, 0, mClient).isEmpty());
-        assertTrue(mDispatcher.pull(RESOURCE_URI, 1, null).isEmpty());
-    }
-
-    @Test
-    public void testShouldAutoFetch() {
-        assertFalse(Dispatcher.shouldAutoFetch(FLAG_BLOCK_AUTO_FETCH));
-        assertTrue(Dispatcher.shouldAutoFetch(~FLAG_BLOCK_AUTO_FETCH));
-    }
-
-    @Test
     public void testEnableDispatching() {
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_URI, 0, mClient));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_FILTER, mClient));
         assertTrue(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
     }
 
@@ -344,43 +322,44 @@ public class DispatcherTest extends TestBase {
     public void testEnableDispatchingAlreadyEnabled() {
         setLogLevel(Log.INFO);
         testEnableDispatching();
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_URI, 0, mClient));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_FILTER, mClient));
         assertTrue(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
     }
 
     @Test
-    public void testEnableDispatchingAutoFetch() {
-        injectSubscription(RESOURCE_URI, mClient.getUri());
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_URI, 0, mClient));
-        assertTrue(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
-        verify(mUTwin, timeout(DELAY_MS).times(1)).getMessage(RESOURCE_URI);
+    public void testEnableDispatchingUnauthenticated() {
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.enableDispatching(new UriFilter(RESOURCE_URI, CLIENT2_URI), mClient));
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.enableDispatching(new UriFilter(METHOD_URI, CLIENT2_URI), mClient));
     }
 
     @Test
-    public void testEnableDispatchingAutoFetchBlocked() {
-        injectSubscription(RESOURCE_URI, mClient.getUri());
-        assertStatus(UCode.OK, mDispatcher.enableDispatching(RESOURCE_URI, FLAG_BLOCK_AUTO_FETCH, mClient));
-        assertTrue(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
-        verify(mUTwin, never()).getMessage(RESOURCE_URI);
+    public void testEnableDispatchingUnsupported() {
+        final UUri uri = UUri.newBuilder(RESOURCE_URI).setResourceId(WILDCARD_RESOURCE_ID).build();
+        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.enableDispatching(new UriFilter(uri, ANY), mClient));
     }
 
     @Test
     public void testEnableDispatchingForServer() {
-        mDispatcher.enableDispatching(METHOD_URI, 0, mServer);
+        mDispatcher.enableDispatching(METHOD_FILTER, mServer);
         verify(mRpcHandler, times(1)).registerServer(METHOD_URI, mServer);
     }
 
     @Test
-    @SuppressWarnings("DataFlowIssue")
-    public void testEnableDispatchingNegative() {
-        assertThrows(NullPointerException.class, () -> mDispatcher.enableDispatching(null, 0, mClient));
-        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.enableDispatching(EMPTY_URI, 0, mClient));
-        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.enableDispatching(RESOURCE_URI,  0,null));
+    public void testEnableDispatchingForCaller() {
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(new UriFilter(METHOD_URI, CLIENT_URI), mClient));
+    }
+
+    @Test
+    public void testEnableDispatchingForStreamer() {
+        Client server = registerRemoteServer(new Binder());
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(new UriFilter(ANY, ANY), server));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(new UriFilter(ANY, REMOTE_CLIENT_URI), server));
+        assertStatus(UCode.OK, mDispatcher.enableDispatching(new UriFilter(RESOURCE_URI, ANY), server));
     }
 
     @Test
     public void testDisableDispatching() {
-        assertStatus(UCode.OK, mDispatcher.disableDispatching(RESOURCE_URI, 0, mClient));
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(RESOURCE_FILTER, mClient));
         assertFalse(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
     }
 
@@ -388,46 +367,59 @@ public class DispatcherTest extends TestBase {
     public void testDisableDispatchingAlreadyDisabled() {
         setLogLevel(Log.INFO);
         testDisableDispatching();
-        assertStatus(UCode.OK, mDispatcher.disableDispatching(RESOURCE_URI, 0, mClient));
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(RESOURCE_FILTER, mClient));
         assertFalse(mDispatcher.getLinkedClients(RESOURCE_URI).contains(mClient));
     }
 
     @Test
+    public void testDisableDispatchingUnauthenticated() {
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.disableDispatching(new UriFilter(RESOURCE_URI, CLIENT2_URI), mClient));
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.disableDispatching(new UriFilter(METHOD_URI, CLIENT2_URI), mClient));
+    }
+
+    @Test
+    public void testDisableDispatchingUnsupported() {
+        final UUri uri = UUri.newBuilder(RESOURCE_URI).setResourceId(WILDCARD_RESOURCE_ID).build();
+        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.disableDispatching(new UriFilter(uri, ANY), mClient));
+    }
+
+    @Test
     public void testDisableDispatchingForServer() {
-        mDispatcher.disableDispatching(METHOD_URI, 0, mServer);
+        mDispatcher.disableDispatching(METHOD_FILTER, mServer);
         verify(mRpcHandler, times(1)).unregisterServer(METHOD_URI, mServer);
     }
 
     @Test
-    @SuppressWarnings("DataFlowIssue")
-    public void testDisableDispatchingNegative() {
-        assertThrows(NullPointerException.class, () -> mDispatcher.disableDispatching(null, 0, mClient));
-        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.disableDispatching(EMPTY_URI, 0, mClient));
-        assertStatus(UCode.INVALID_ARGUMENT, mDispatcher.disableDispatching(RESOURCE_URI, 0, null));
+    public void testDisableDispatchingForCaller() {
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(new UriFilter(METHOD_URI, CLIENT_URI), mClient));
+    }
+
+    @Test
+    public void testDisableDispatchingForStreamer() {
+        Client server = registerRemoteServer(new Binder());
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(new UriFilter(ANY, ANY), server));
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(new UriFilter(ANY, REMOTE_CLIENT_URI), server));
+        assertStatus(UCode.OK, mDispatcher.disableDispatching(new UriFilter(RESOURCE_URI, ANY), server));
     }
 
     @Test
     public void testDispatchFromUnknownMessage() {
-        injectTopic(RESOURCE2_URI, mServer.getUri());
         final UMessage message = UMessage.getDefaultInstance();
         assertStatus(UCode.UNIMPLEMENTED, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageNotCached(message);
     }
 
     @Test
-    public void testDispatchFromExpiredMessage() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
-        final UMessage message = buildPublishMessage(RESOURCE_URI, 100);
-        sleep(200);
-        assertStatus(UCode.DEADLINE_EXCEEDED, mDispatcher.dispatchFrom(message, mServer));
+    public void testDispatchFromPublishMessageUnauthenticated() {
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.dispatchFrom(message, mClient));
         verifyMessageNotCached(message);
     }
 
     @Test
     public void testDispatchFromPublishMessage() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
         registerReceiver(RESOURCE_URI, mClient, true);
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageCached(message);
         verifyMessageReceived(message, 1, mClient);
@@ -435,14 +427,13 @@ public class DispatcherTest extends TestBase {
 
     @Test
     public void testDispatchFromPublishMessageSequence() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
         registerReceiver(RESOURCE_URI, mClient, true);
-        final UMessage message1 = buildPublishMessage(RESOURCE_URI);
+        final UMessage message1 = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message1, mServer));
         verifyMessageCached(message1);
         verifyMessageReceived(message1, 1, mClient);
 
-        final UMessage message2 = buildPublishMessage(RESOURCE_URI);
+        final UMessage message2 = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message2, mServer));
         verifyMessageCached(message2);
         verifyMessageReceived(message2, 1, mClient);
@@ -450,9 +441,8 @@ public class DispatcherTest extends TestBase {
 
     @Test
     public void testDispatchFromPublishMessageDuplicated() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
         registerReceiver(RESOURCE_URI, mClient, true);
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageCached(message);
@@ -460,19 +450,9 @@ public class DispatcherTest extends TestBase {
     }
 
     @Test
-    public void testDispatchFromPublishMessageTopicNotCreated() {
-        registerReceiver(RESOURCE_URI, mClient, false);
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
-        assertStatus(UCode.NOT_FOUND, mDispatcher.dispatchFrom(message, mServer));
-        assertNull(mUTwin.getMessage(message.getAttributes().getSource()));
-        verifyMessageNotReceived(message, mClient);
-    }
-
-    @Test
     public void testDispatchFromPublishMessageLinkedButNotSubscribed() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
         registerReceiver(RESOURCE_URI, mClient, false);
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageCached(message);
         verifyMessageNotReceived(message, mClient);
@@ -480,9 +460,8 @@ public class DispatcherTest extends TestBase {
 
     @Test
     public void testDispatchFromPublishMessageSubscribedButNotLinked() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
-        injectSubscription(RESOURCE_URI, mClient.getUri());
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        injectSubscription(new SubscriptionData(RESOURCE_URI, mClient.getUri()));
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageCached(message);
         verifyMessageNotReceived(message, mClient);
@@ -490,79 +469,124 @@ public class DispatcherTest extends TestBase {
 
     @Test
     public void testDispatchFromPublishMessageSubscribedRemotely() {
-        injectTopic(RESOURCE_URI, mServer.getUri());
-        injectSubscription(RESOURCE_URI, REMOTE_SERVER_URI);
+        injectSubscription(new SubscriptionData(RESOURCE_URI, SERVICE_URI_REMOTE));
         final Client client = registerRemoteServer(new Binder());
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
-        final UMessage modifiedMessage = replaceSink(message, REMOTE_SERVER_URI);
         verifyMessageCached(message);
-        verifyMessageReceived(modifiedMessage, 1, client);
+        verifyMessageReceived(message, 1, client);
+    }
+
+    @Test
+    public void testDispatchFromPublishMessageSubscribedRemotelyNoStreamer() {
+        injectSubscription(new SubscriptionData(RESOURCE_URI, SERVICE_URI_REMOTE));
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageCached(message);
+    }
+
+    @Test
+    public void testDispatchFromPublishEventSubscribedRemotelyThrottled() {
+        final int period = 100;
+        injectSubscription(new SubscriptionData(RESOURCE_URI, SERVICE_URI_REMOTE, 0, period));
+        final Client client = registerRemoteServer(new Binder());
+        UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageCached(message);
+        verifyMessageReceived(message, 1, client);
+
+        message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageCached(message);
+        verifyMessageReceived(message, 0, client);
+
+        setLogLevel(Log.INFO);
+        message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageCached(message);
+        verifyMessageReceived(message, 0, client);
+
+        sleep(period + 10);
+        message = UMessageBuilder.publish(RESOURCE_URI).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageCached(message);
+        verifyMessageReceived(message, 1, client);
     }
 
     @Test
     public void testDispatchFromRemotePublishMessage() {
         final Client server = registerRemoteServer(new Binder());
-        registerReceiver(REMOTE_RESOURCE_URI, mClient, true);
-        final UMessage message = buildNotificationMessage(REMOTE_RESOURCE_URI, USUBSCRIPTION_URI);
+        registerReceiver(RESOURCE_URI_REMOTE, mClient, true);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI_REMOTE).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, server));
-        final UMessage modifiedMessage = replaceSink(message, EMPTY_URI);
-        verifyMessageCached(modifiedMessage);
-        verifyMessageReceived(modifiedMessage, 1, mClient);
-    }
-
-    @Test
-    public void testDispatchFromRemoteSubscriptionNotificationMessage() {
-        final UUri topic = addAuthority(USubscription.TOPIC_SUBSCRIPTION_UPDATE, REMOTE_AUTHORITY);
-        final Client server = registerRemoteServer(new Binder());
-        final Client client = registerReceiver(topic, registerNewClient(USubscription.SERVICE), false);
-        final UMessage message = buildNotificationMessage(topic, USUBSCRIPTION_URI);
-        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, server));
-        verifyMessageNotCached(message);
-        verifyMessageReceived(message, 1, client);
-    }
-
-    @Test
-    public void testDispatchFromRemoteNotificationMessage() {
-        final Client server = registerRemoteServer(new Binder());
-        registerReceiver(REMOTE_RESOURCE_URI, mClient, false);
-        final UMessage message = buildNotificationMessage(REMOTE_RESOURCE_URI, mClient.getUri());
-        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, server));
-        verifyMessageNotCached(message);
+        verifyMessageCached(message);
         verifyMessageReceived(message, 1, mClient);
+    }
+
+    @Test
+    public void testDispatchFromNotificationMessageUnauthenticated() {
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT2_URI).build();
+        assertStatus(UCode.UNAUTHENTICATED, mDispatcher.dispatchFrom(message, mClient));
+        verifyMessageNotCached(message);
     }
 
     @Test
     public void testDispatchFromNotificationMessage() {
         setLogLevel(Log.INFO);
         registerReceiver(RESOURCE_URI, mClient, false);
-        final UMessage message = buildNotificationMessage(RESOURCE_URI, mClient.getUri());
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, mClient.getUri()).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
         verifyMessageNotCached(message);
         verifyMessageReceived(message, 1, mClient);
     }
 
     @Test
-    public void testDispatchFromStreamerNotificationMessage() {
+    public void testDispatchFromRemoteNotificationMessage() {
         final Client server = registerRemoteServer(new Binder());
-        final UUri topic = buildUri(null, REMOTE_SERVER, RESOURCE);
-        registerReceiver(topic, mClient, false);
-        final UMessage message = buildNotificationMessage(topic, mClient.getUri());
+        registerReceiver(RESOURCE_URI_REMOTE, mClient, false);
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI_REMOTE, mClient.getUri()).build();
         assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, server));
         verifyMessageNotCached(message);
         verifyMessageReceived(message, 1, mClient);
     }
 
     @Test
+    public void testDispatchFromStreamerNotificationEvent() {
+        final Client server = registerRemoteServer(new Binder());
+        final UUri topic = UUri.newBuilder(REMOTE_CLIENT_URI).setResourceId(RESOURCE_ID).build();
+        registerReceiver(topic, mClient, false);
+        final UMessage message = UMessageBuilder.notification(topic, mClient.getUri()).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, server));
+        verifyMessageNotCached(message);
+        verifyMessageReceived(message, 1, mClient);
+    }
+
+    @Test
+    public void testDispatchFromNotificationMessageRegisteredRemotely() {
+        final Client client = registerRemoteServer(new Binder());
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI_REMOTE).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageNotCached(message);
+        verifyMessageReceived(message, 1, client);
+    }
+
+    @Test
+    public void testDispatchFromNotificationMessageRegisteredRemotelyNoStreamer() {
+        final UMessage message = UMessageBuilder.notification(RESOURCE_URI, CLIENT_URI_REMOTE).build();
+        assertStatus(UCode.OK, mDispatcher.dispatchFrom(message, mServer));
+        verifyMessageNotCached(message);
+    }
+
+    @Test
     public void testDispatchFromRequestMessage() {
-        final UMessage requestMessage = buildRequestMessage();
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_URI, TTL).build();
         mDispatcher.dispatchFrom(requestMessage, mClient);
         verify(mRpcHandler, times(1)).handleRequestMessage(requestMessage, mClient);
     }
 
     @Test
     public void testDispatchFromResponseMessage() {
-        final UMessage responseMessage = buildResponseMessage(buildRequestMessage());
+        final UMessage responseMessage = UMessageBuilder.response(METHOD_URI, CLIENT_URI, ID).build();
         mDispatcher.dispatchFrom(responseMessage, mServer);
         verify(mRpcHandler, times(1)).handleResponseMessage(responseMessage, mServer);
     }
@@ -570,52 +594,58 @@ public class DispatcherTest extends TestBase {
     @Test
     public void testDispatchTo() {
         setLogLevel(Log.INFO);
-        assertTrue(mDispatcher.dispatchTo(buildPublishMessage(), mClient));
+        assertTrue(mDispatcher.dispatchTo(UMessageBuilder.publish(RESOURCE_URI).build(), mClient));
     }
 
     @Test
-    public void testDispatchToExceptionally() {
+    public void testDispatchToFailure() {
         doThrow(new RuntimeException()).when((UListener) mClient.getListener()).onReceive(any());
-        assertFalse(mDispatcher.dispatchTo(buildPublishMessage(), mClient));
+        assertFalse(mDispatcher.dispatchTo(UMessageBuilder.publish(RESOURCE_URI).build(), mClient));
     }
 
     @Test
     public void testDispatchToRetried() {
         doThrow(new RuntimeException()).doNothing().when((UListener) mClient.getListener()).onReceive(any());
-        assertTrue(mDispatcher.dispatchTo(buildPublishMessage(), mClient));
+        assertTrue(mDispatcher.dispatchTo(UMessageBuilder.publish(RESOURCE_URI).build(), mClient));
     }
 
     @Test
     public void testDispatchToRetryInterrupted() {
         doThrow(new RuntimeException()).doNothing().when((UListener) mClient.getListener()).onReceive(any());
         Thread.currentThread().interrupt();
-        assertFalse(mDispatcher.dispatchTo(buildPublishMessage(), mClient));
+        assertFalse(mDispatcher.dispatchTo(UMessageBuilder.publish(RESOURCE_URI).build(), mClient));
     }
 
     @Test
     @SuppressWarnings("DataFlowIssue")
     public void testDispatchToNegative() {
         assertFalse(mDispatcher.dispatchTo(null, mClient));
-        assertFalse(mDispatcher.dispatchTo(buildPublishMessage(), null));
+        assertFalse(mDispatcher.dispatchTo(UMessageBuilder.publish(RESOURCE_URI).build(), null));
     }
 
     @Test
     public void testDispatchNullMessage() {
         registerReceiver(RESOURCE_URI, mClient, false);
-        mDispatcher.dispatch(null, EMPTY_URI);
+        mDispatcher.dispatch(null);
         verifyNoMessagesReceived(mClient);
     }
 
     @Test
+    public void testGetCaller() {
+        mDispatcher.getCaller(ID);
+        verify(mRpcHandler, times(1)).getCaller(ID);
+    }
+
+    @Test
     public void getCachedMessage() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertTrue(mUTwin.addMessage(message));
         verifyMessageCached(message);
     }
 
     @Test
     public void getCachedMessageExpired() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI, 100);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).withTtl(100).build();
         assertTrue(mUTwin.addMessage(message));
         verifyMessageCached(message);
         sleep(200);
@@ -633,10 +663,9 @@ public class DispatcherTest extends TestBase {
     @Test
     public void testDump() {
         final UUri topic = RESOURCE_URI;
-        mSubscriptionCache.addTopic(topic, SERVER_URI);
-        mSubscriptionCache.addSubscriber(topic, mClient.getUri());
-        mUTwin.addMessage(buildPublishMessage(topic));
-        mDispatcher.enableDispatching(topic, 0, mClient);
+        mSubscriptionCache.addSubscription(new SubscriptionData(topic, mClient.getUri()));
+        mUTwin.addMessage(UMessageBuilder.publish(topic).build());
+        mDispatcher.enableDispatching(new UriFilter(topic, ANY), mClient);
 
         final String output = dump();
         assertTrue(output.contains(stringify(topic)));
@@ -646,15 +675,13 @@ public class DispatcherTest extends TestBase {
     public void testDumpTopic() {
         final UUri topic1 = RESOURCE_URI;
         final UUri topic2 = RESOURCE2_URI;
-        final Client client1 = registerNewClient(CLIENT);
-        final Client client2 = registerNewClient(CLIENT2);
-        mSubscriptionCache.addTopic(topic1, SERVER_URI);
-        mSubscriptionCache.addTopic(topic2, SERVER_URI);
-        mSubscriptionCache.addSubscriber(topic1, client1.getUri());
+        final Client client1 = registerNewClient(CLIENT_URI);
+        final Client client2 = registerNewClient(CLIENT2_URI);
+        mSubscriptionCache.addSubscription(new SubscriptionData(topic1, client1.getUri()));
 
-        mDispatcher.enableDispatching(topic1, 0, client1);
-        mDispatcher.enableDispatching(topic1, 0, client2);
-        mDispatcher.enableDispatching(topic2, 0, client2);
+        mDispatcher.enableDispatching(new UriFilter(topic1, ANY), client1);
+        mDispatcher.enableDispatching(new UriFilter(topic1, ANY), client2);
+        mDispatcher.enableDispatching(new UriFilter(topic2, ANY), client2);
 
         final String output = dump("-t", stringify(topic1));
         assertTrue(output.contains(stringify(topic1)));
@@ -665,15 +692,13 @@ public class DispatcherTest extends TestBase {
     public void testDumpTopics() {
         final UUri topic1 = RESOURCE_URI;
         final UUri topic2 = RESOURCE2_URI;
-        final Client client1 = registerNewClient(CLIENT);
-        final Client client2 = registerNewClient(CLIENT2);
-        mSubscriptionCache.addTopic(topic1, SERVER_URI);
-        mSubscriptionCache.addTopic(topic2, SERVER_URI);
-        mSubscriptionCache.addSubscriber(topic1, client1.getUri());
+        final Client client1 = registerNewClient(CLIENT_URI);
+        final Client client2 = registerNewClient(CLIENT2_URI);
+        mSubscriptionCache.addSubscription(new SubscriptionData(topic1, client1.getUri()));
 
-        mDispatcher.enableDispatching(topic1, 0, client1);
-        mDispatcher.enableDispatching(topic1, 0, client2);
-        mDispatcher.enableDispatching(topic2, 0, client2);
+        mDispatcher.enableDispatching(new UriFilter(topic1, ANY), client1);
+        mDispatcher.enableDispatching(new UriFilter(topic1, ANY), client2);
+        mDispatcher.enableDispatching(new UriFilter(topic2, ANY), client2);
 
         final String output = dump("-t");
         assertTrue(output.contains(stringify(topic1)));
@@ -683,10 +708,9 @@ public class DispatcherTest extends TestBase {
     @Test
     public void testDumpUnknownArg() {
         final UUri topic = RESOURCE_URI;
-        mSubscriptionCache.addTopic(topic, SERVER_URI);
-        mSubscriptionCache.addSubscriber(topic, mClient.getUri());
-        mUTwin.addMessage(buildPublishMessage(topic));
-        mDispatcher.enableDispatching(topic, 0, mClient);
+        mSubscriptionCache.addSubscription(new SubscriptionData(topic, mClient.getUri()));
+        mUTwin.addMessage(UMessageBuilder.publish(topic).build());
+        mDispatcher.enableDispatching(new UriFilter(topic, ANY), mClient);
 
         final String output = dump("-s");
         assertFalse(output.contains(stringify(topic)));

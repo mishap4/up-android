@@ -23,23 +23,24 @@
  */
 package org.eclipse.uprotocol.core.ubus;
 
+import static org.eclipse.uprotocol.common.util.UStatusUtils.checkNotNull;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.status;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.checkMessageValid;
-import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
+import static org.eclipse.uprotocol.core.ubus.UBus.Component.DEBUG;
 import static org.eclipse.uprotocol.core.ubus.UBus.Component.TAG;
-import static org.eclipse.uprotocol.core.ubus.UBus.Component.TRACE_EVENTS;
+import static org.eclipse.uprotocol.core.ubus.UBus.Component.VERBOSE;
+import static org.eclipse.uprotocol.core.ubus.UBus.Component.debugOrError;
 import static org.eclipse.uprotocol.core.ubus.UBus.Component.logStatus;
+import static org.eclipse.uprotocol.core.ubus.UBus.Component.verboseOrError;
 
 import static java.lang.String.join;
-import static java.util.Collections.emptyList;
 import static java.util.Optional.ofNullable;
 
 import android.content.Context;
-import android.os.Binder;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -47,15 +48,17 @@ import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import org.eclipse.uprotocol.common.util.log.Key;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.core.UCore;
-import org.eclipse.uprotocol.core.internal.handler.MessageHandler;
 import org.eclipse.uprotocol.core.ubus.client.Client;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager;
+import org.eclipse.uprotocol.core.ubus.client.Credentials;
 import org.eclipse.uprotocol.transport.UListener;
-import org.eclipse.uprotocol.v1.UAuthority;
-import org.eclipse.uprotocol.v1.UEntity;
+import org.eclipse.uprotocol.uri.validator.UriFilter;
+import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UStatus;
+import org.eclipse.uprotocol.v1.UUID;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.io.PrintWriter;
@@ -63,23 +66,16 @@ import java.util.List;
 
 @SuppressWarnings("java:S3008")
 public class UBus extends UCore.Component {
-    public static final UEntity ENTITY = UEntity.newBuilder()
-            .setName("core.ubus")
-            .setVersionMajor(1)
-            .build();
-
-    private final IBinder mClientToken = new Binder();
     private final Context mContext;
     private final ClientManager mClientManager;
-    private final MessageHandler mMessageHandler;
     private final Dispatcher mDispatcher;
+    private final ThrottlingMonitor mThrottlingMonitor;
     private final Components mComponents;
 
     public abstract static class Component {
-        protected static final String TAG = tag(ENTITY.getName());
+        protected static final String TAG = tag("core.ubus");
         protected static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
         protected static boolean VERBOSE = Log.isLoggable(TAG, Log.VERBOSE);
-        protected static boolean TRACE_EVENTS = Log.isLoggable(tag(TAG, "Events"), Log.VERBOSE);
 
         protected void init(@NonNull Components components) {}
         protected void startup() {}
@@ -97,6 +93,14 @@ public class UBus extends UCore.Component {
             Log.println(priority, tag, status(method, status, args));
             return status;
         }
+
+        protected static int debugOrError(@NonNull UStatus status) {
+            return isOk(status) ? Log.DEBUG : Log.ERROR;
+        }
+
+        protected static int verboseOrError(@NonNull UStatus status) {
+            return isOk(status) ? Log.VERBOSE : Log.ERROR;
+        }
     }
 
     public class Components {
@@ -104,7 +108,7 @@ public class UBus extends UCore.Component {
         private UCore mUCore;
 
         Components() {
-            mDependentComponents = List.of(mClientManager, mDispatcher);
+            mDependentComponents = List.of(mClientManager, mDispatcher, mThrottlingMonitor);
         }
 
         public UCore getUCore() {
@@ -115,12 +119,12 @@ public class UBus extends UCore.Component {
             return mClientManager;
         }
 
-        public @NonNull MessageHandler getHandler() {
-            return mMessageHandler;
-        }
-
         public @NonNull Dispatcher getDispatcher() {
             return mDispatcher;
+        }
+
+        public @NonNull ThrottlingMonitor getThrottlingMonitor() {
+            return mThrottlingMonitor;
         }
 
         void init(@NonNull UCore uCore) {
@@ -142,34 +146,34 @@ public class UBus extends UCore.Component {
     }
 
     public UBus(@NonNull Context context) {
-        this(context, null, null);
+        this(context, null, null, null);
     }
 
     @VisibleForTesting
-    public UBus(@NonNull Context context, ClientManager clientManager, Dispatcher dispatcher) {
+    public UBus(@NonNull Context context, ClientManager clientManager, Dispatcher dispatcher,
+            ThrottlingMonitor throttlingMonitor) {
         mContext = context;
-        mMessageHandler = new MessageHandler(this, ENTITY, mClientToken);
         mClientManager = ofNullable(clientManager).orElseGet(() -> new ClientManager(context));
         mDispatcher = ofNullable(dispatcher).orElseGet(Dispatcher::new);
+        mThrottlingMonitor = ofNullable(throttlingMonitor).orElseGet(ThrottlingMonitor::new);
         mComponents = new Components();
     }
 
     @Override
     protected void init(@NonNull UCore uCore) {
-        Log.i(TAG, join(Key.EVENT, "Service init"));
+        Log.i(TAG, join(Key.STATE, "Init"));
         mComponents.init(uCore);
-        registerClient(ENTITY, mClientToken, mMessageHandler);
     }
 
     @Override
     protected void startup() {
-        Log.i(TAG, join(Key.EVENT, "Service start"));
+        Log.i(TAG, join(Key.STATE, "Startup"));
         mComponents.startup();
     }
 
     @Override
     protected void shutdown() {
-        Log.i(TAG, join(Key.EVENT, "Service shutdown"));
+        Log.i(TAG, join(Key.STATE, "Shutdown"));
         mComponents.shutdown();
     }
 
@@ -184,19 +188,14 @@ public class UBus extends UCore.Component {
         return mComponents.mDependentComponents;
     }
 
-    public @NonNull UAuthority getDeviceAuthority() {
-        // TODO: Get VIN...
-        return UAuthority.getDefaultInstance();
-    }
-
-    public @NonNull UStatus registerClient(@NonNull UEntity entity, @NonNull IBinder clientToken,
+    public @NonNull UStatus registerClient(@NonNull UUri clientUri, @NonNull IBinder clientToken,
             @NonNull UListener listener) {
-        return mClientManager.registerClient(mContext.getPackageName(), entity, clientToken, listener);
+        return mClientManager.registerClient(mContext.getPackageName(), clientUri, clientToken, listener);
     }
 
-    public @NonNull <T> UStatus registerClient(@NonNull String packageName, @NonNull UEntity entity,
+    public @NonNull <T> UStatus registerClient(@NonNull String packageName, @NonNull UUri clientUri,
             @NonNull IBinder clientToken, @NonNull T listener) {
-        return mClientManager.registerClient(packageName, entity, clientToken, listener);
+        return mClientManager.registerClient(packageName, clientUri, clientToken, listener);
     }
 
     public @NonNull UStatus unregisterClient(@NonNull IBinder clientToken) {
@@ -204,48 +203,53 @@ public class UBus extends UCore.Component {
     }
 
     public @NonNull UStatus send(@NonNull UMessage message, @NonNull IBinder clientToken) {
+        Client client = null;
+        UStatus status;
         try {
-            checkMessageValid(message);
-            final Client client = mClientManager.getClientOrThrow(clientToken);
-            final UStatus status = mDispatcher.dispatchFrom(message, client);
-            if (!isOk(status)) {
-                logStatus(Log.ERROR, "send", status, Key.MESSAGE, stringify(message), Key.CLIENT, client);
-            } else if (TRACE_EVENTS) {
-                logStatus(Log.VERBOSE, "send", status, Key.MESSAGE, stringify(message), Key.CLIENT, client);
-            }
-            return status;
+            client = mClientManager.getClientOrThrow(clientToken);
+            status = mDispatcher.dispatchFrom(checkMessageValid(message), client);
         } catch (Exception e) {
-            return logStatus(Log.ERROR, "send", toStatus(e), Key.MESSAGE, stringify(message), Key.TOKEN, stringify(clientToken));
+            status = toStatus(e);
         }
+        if (!isOk(status) || VERBOSE) {
+            logStatus(verboseOrError(status), "send", status, Key.MESSAGE, stringify(message), Key.CLIENT, client);
+        }
+        return status;
     }
 
-    public @NonNull List<UMessage> pull(@NonNull UUri uri, int count, int ignored, @NonNull IBinder clientToken) {
+    public @NonNull UStatus enableDispatching(@NonNull UriFilter filter, @NonNull IBinder clientToken) {
+        Client client = null;
+        UStatus status;
         try {
-            return mDispatcher.pull(uri, count, mClientManager.getClientOrThrow(clientToken));
+            client = mClientManager.getClientOrThrow(clientToken);
+            status = mDispatcher.enableDispatching(filter, client);
         } catch (Exception e) {
-            logStatus(Log.ERROR, "pull", toStatus(e), Key.URI, stringify(uri), Key.TOKEN, stringify(clientToken));
-            return emptyList();
+            status = toStatus(e);
         }
+        if (!isOk(status) || DEBUG) {
+            logStatus(debugOrError(status), "enableDispatching", status, Key.FILTER, stringify(filter), Key.CLIENT, client);
+        }
+        return status;
     }
 
-    public @NonNull UStatus enableDispatching(@NonNull UUri uri, int flags, @NonNull IBinder clientToken) {
+    public @NonNull UStatus disableDispatching(@NonNull UriFilter filter, @NonNull IBinder clientToken) {
+        Client client = null;
+        UStatus status;
         try {
-            return mDispatcher.enableDispatching(uri, flags, mClientManager.getClientOrThrow(clientToken));
+            client = mClientManager.getClientOrThrow(clientToken);
+            status = mDispatcher.disableDispatching(filter, client);
         } catch (Exception e) {
-            return toStatus(e);
+            status = toStatus(e);
         }
+        if (!isOk(status) || DEBUG) {
+            logStatus(debugOrError(status), "disableDispatching", status, Key.FILTER, stringify(filter), Key.CLIENT, client);
+        }
+        return status;
     }
 
-    public @NonNull UStatus disableDispatching(@NonNull UUri uri, int flags, @NonNull IBinder clientToken) {
-        try {
-            return mDispatcher.disableDispatching(uri, flags, mClientManager.getClientOrThrow(clientToken));
-        } catch (Exception e) {
-            return toStatus(e);
-        }
-    }
-
-    public boolean isTopicCreated(@NonNull UUri topic, @NonNull UUri clientUri) {
-        return mDispatcher.getSubscriptionCache().isTopicCreated(topic, clientUri);
+    public @NonNull Credentials getCallerCredentials(@NonNull UUID requestId) throws UStatusException {
+        final Client client = checkNotNull(mDispatcher.getCaller(requestId), UCode.UNAVAILABLE, "Caller not found");
+        return client.getCredentials();
     }
 
     @Override

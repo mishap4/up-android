@@ -102,8 +102,8 @@ public class UCoreService extends Service {
         writer.println("*UCore*");
         if (emptyIfNull(args).length == 0) {
             writer.println(String.format("  %s: %s", BuildConfig.APPLICATION_ID, BuildConfig.VERSION_NAME));
-            writer.println(String.format("  %s: %s", org.eclipse.uprotocol.client.BuildConfig.LIBRARY_PACKAGE_NAME,
-                                                     org.eclipse.uprotocol.client.BuildConfig.VERSION_NAME));
+            writer.println(String.format("  %s: %s", org.eclipse.uprotocol.transport.BuildConfig.LIBRARY_PACKAGE_NAME,
+                                                     org.eclipse.uprotocol.transport.BuildConfig.VERSION_NAME));
         }
         mUCore.dump(writer, args);
     }

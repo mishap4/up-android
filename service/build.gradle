@@ -27,8 +27,6 @@ android {
 
     defaultConfig {
         applicationId config.namespace
-        minSdkVersion config.minSdkVersion
-        targetSdkVersion config.sdkVersion
         minSdk config.minSdkVersion
         targetSdk config.sdkVersion
         versionCode config.versionCode
@@ -58,7 +56,6 @@ android {
             signingConfig signingConfigs.platform
             debuggable true
             minifyEnabled false
-            testCoverageEnabled true
         }
         release {
             signingConfig signingConfigs.platform
@@ -68,12 +65,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility config.jvm.version.java
+        targetCompatibility config.jvm.version.java
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = config.jvm.version.kotlin
     }
 
     sourceSets {
@@ -93,7 +90,7 @@ android {
                 showStandardStreams = true
                 jacoco {
                     includeNoLocationClasses = true
-                    excludes = ['*']
+                    excludes = ['jdk.internal.*']
                 }
             }
         }
@@ -107,7 +104,7 @@ dependencies {
     implementation libs.kotlinx.coroutines
     ksp libs.room.compiler
     implementation libs.room.ktx
-    implementation libs.up.client.android.java
+    implementation libs.up.transport.android.java
     implementation libs.up.java
 
     testImplementation libs.androidx.junit

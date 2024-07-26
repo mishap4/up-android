@@ -24,7 +24,7 @@
 package org.eclipse.uprotocol.core.internal.handler;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.isOk;
-import static org.eclipse.uprotocol.core.ubus.UBusManager.FLAG_BLOCK_AUTO_FETCH;
+import static org.eclipse.uprotocol.uri.factory.UriFactory.ANY;
 import static org.eclipse.uprotocol.uri.validator.UriValidator.isRpcMethod;
 
 import android.os.IBinder;
@@ -35,7 +35,7 @@ import androidx.annotation.VisibleForTesting;
 import org.eclipse.uprotocol.core.internal.rpc.RpcExecutor;
 import org.eclipse.uprotocol.core.ubus.UBus;
 import org.eclipse.uprotocol.transport.UListener;
-import org.eclipse.uprotocol.v1.UEntity;
+import org.eclipse.uprotocol.uri.validator.UriFilter;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
@@ -53,15 +53,15 @@ public class MessageHandler implements UListener {
     private final Map<UUri, Set<UListener>> mGenericListeners = new ConcurrentHashMap<>();
     private final Map<UUri, UListener> mRequestListeners = new ConcurrentHashMap<>();
 
-    public MessageHandler(@NonNull UBus uBus, @NonNull UEntity entity, @NonNull IBinder clientToken) {
-        this(uBus, entity, clientToken, Runnable::run);
+    public MessageHandler(@NonNull UBus uBus, @NonNull UUri clientUri, @NonNull IBinder clientToken) {
+        this(uBus, clientUri, clientToken, Runnable::run);
     }
 
-    public MessageHandler(@NonNull UBus uBus, @NonNull UEntity entity, @NonNull IBinder clientToken,
+    public MessageHandler(@NonNull UBus uBus, @NonNull UUri clientUri, @NonNull IBinder clientToken,
             @NonNull Executor executor) {
         mUBus = uBus;
         mClientToken = clientToken;
-        mRpcExecutor = new RpcExecutor(uBus, entity, clientToken);
+        mRpcExecutor = new RpcExecutor(uBus, clientUri, clientToken);
         mExecutor = executor;
     }
 
@@ -87,7 +87,7 @@ public class MessageHandler implements UListener {
         final Set<UListener> registeredListeners = mGenericListeners.compute(uri, (it, listeners) -> {
             if (listeners == null) {
                 listeners = ConcurrentHashMap.newKeySet();
-                final UStatus status = mUBus.enableDispatching(uri, FLAG_BLOCK_AUTO_FETCH, mClientToken);
+                final UStatus status = mUBus.enableDispatching(new UriFilter(uri, ANY), mClientToken);
                 if (!isOk(status)) {
                     return null;
                 }
@@ -103,7 +103,7 @@ public class MessageHandler implements UListener {
         mGenericListeners.computeIfPresent(uri, (it, listeners) -> {
             wrapper.removed = listeners.remove(listener);
             if (listeners.isEmpty()) {
-                mUBus.disableDispatching(uri, 0, mClientToken);
+                mUBus.disableDispatching(new UriFilter(uri, ANY), mClientToken);
                 return null;
             }
             return listeners;
@@ -113,7 +113,7 @@ public class MessageHandler implements UListener {
 
     private boolean registerRequestListener(@NonNull UUri uri, @NonNull UListener listener) {
         final UListener registeredListener = mRequestListeners.computeIfAbsent(uri, it -> {
-            final UStatus status = mUBus.enableDispatching(uri, 0, mClientToken);
+            final UStatus status = mUBus.enableDispatching(new UriFilter(ANY, uri), mClientToken);
             return isOk(status) ? listener : null;
         });
         return (registeredListener == listener);
@@ -125,7 +125,7 @@ public class MessageHandler implements UListener {
             if (registeredListener != listener) {
                 return registeredListener;
             }
-            mUBus.disableDispatching(uri, 0, mClientToken);
+            mUBus.disableDispatching(new UriFilter(ANY, uri), mClientToken);
             wrapper.removed = true;
             return null;
         });

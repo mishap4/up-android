@@ -26,7 +26,6 @@ package org.eclipse.uprotocol.core.ubus.client;
 import static android.os.Process.myPid;
 import static android.os.Process.myUid;
 
-import static org.eclipse.uprotocol.core.ubus.client.ClientManager.REMOTE_CLIENT_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -53,7 +52,7 @@ import org.eclipse.uprotocol.core.ubus.UBus;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager.RegistrationListener;
 import org.eclipse.uprotocol.transport.UListener;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
+import org.eclipse.uprotocol.v1.UUri;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -68,11 +67,9 @@ import java.util.Random;
 
 @RunWith(AndroidJUnit4.class)
 public class ClientManagerTest extends TestBase {
-    private static final UEntity REMOTE_CLIENT = buildEntity(REMOTE_CLIENT_NAME, 1);
     private static final Random sRandom = new Random();
 
     private final IBinder mClientToken = spy(Binder.class);
-    private final UEntity mEntity = CLIENT;
     private final MockListener mListener = new MockListener();
     private final RegistrationListener mClientRegistrationListener = spy(new RegistrationListener() {});
     private ShadowPackageManager mShadowPackageManager;
@@ -84,7 +81,7 @@ public class ClientManagerTest extends TestBase {
         mShadowPackageManager = Shadows.shadowOf(context.getPackageManager());
         mClientManager = Mockito.spy(new ClientManager(context));
         final UCore uCore = newMockUCoreBuilder(context)
-                .setUBus(new UBus(context, mClientManager, null))
+                .setUBus(new UBus(context, mClientManager, null, null))
                 .build();
         uCore.init();
     }
@@ -119,23 +116,25 @@ public class ClientManagerTest extends TestBase {
     }
 
     @SuppressWarnings("SameParameterValue")
-    private static PackageInfo buildPackageInfoApp(String packageName, UEntity entity) {
+    private static PackageInfo buildPackageInfoApp(@NonNull String packageName, @NonNull UUri clientUri) {
         return buildPackageInfo(packageName, new MetaDataBuilder()
-                .setEntity(entity)
+                .setEntityId(clientUri.getUeId())
+                .setEntityVersion(clientUri.getUeVersionMajor())
                 .build());
     }
 
     @SuppressWarnings("SameParameterValue")
-    private static PackageInfo buildPackageInfoService(String packageName, UEntity entity) {
+    private static PackageInfo buildPackageInfoService(@NonNull String packageName,  @NonNull UUri clientUri) {
         final ComponentName component = new ComponentName(packageName, packageName + ".Class");
         return buildPackageInfo(packageName, buildServiceInfo(component, new MetaDataBuilder()
-                .setEntity(entity)
+                .setEntityId(clientUri.getUeId())
+                .setEntityVersion(clientUri.getUeVersionMajor())
                 .build()));
     }
 
     @Test
     public void testShutdown() {
-        mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener);
+        mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         assertFalse(mClientManager.getClients().isEmpty());
         mClientManager.shutdown();
         assertTrue(mClientManager.getClients().isEmpty());
@@ -157,7 +156,7 @@ public class ClientManagerTest extends TestBase {
     @Test
     public void testRegisterClientInternal() {
         testRegisterListener();
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mock(UListener.class)));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mock(UListener.class)));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         verify(mClientRegistrationListener, times(1)).onClientRegistered(client);
@@ -166,7 +165,7 @@ public class ClientManagerTest extends TestBase {
     @Test
     public void testRegisterClientRemote() {
         testRegisterListener();
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_CLIENT, mClientToken, mock(UListener.class)));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, REMOTE_CLIENT_URI, mClientToken, mock(UListener.class)));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         verify(mClientRegistrationListener, times(1)).onClientRegistered(client);
@@ -174,9 +173,9 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testRegisterClientApp() {
-        simulateRemoteCall(buildPackageInfoApp(PACKAGE_NAME, mEntity));
+        simulateRemoteCall(buildPackageInfoApp(PACKAGE_NAME, CLIENT_URI));
         testRegisterListener();
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         verify(mClientRegistrationListener, times(1)).onClientRegistered(client);
@@ -184,9 +183,9 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testRegisterClientService() {
-        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, mEntity));
+        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, CLIENT_URI));
         testRegisterListener();
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         verify(mClientRegistrationListener, times(1)).onClientRegistered(client);
@@ -194,10 +193,10 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testRegisterClientSameRegistered() {
-        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, mEntity));
+        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, CLIENT_URI));
         testRegisterListener();
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         verify(mClientRegistrationListener, times(1)).onClientRegistered(client);
@@ -205,14 +204,14 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testRegisterClientSamePid() {
-        simulateRemoteCall(myPid(), randomId(), buildPackageInfoApp(PACKAGE_NAME, mEntity));
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+        simulateRemoteCall(myPid(), randomId(), buildPackageInfoApp(PACKAGE_NAME, CLIENT_URI));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
     }
 
     @Test
     public void testRegisterClientSameUid() {
-        simulateRemoteCall(randomId(), myUid(), buildPackageInfoApp(PACKAGE_NAME, mEntity));
-        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+        simulateRemoteCall(randomId(), myUid(), buildPackageInfoApp(PACKAGE_NAME, CLIENT_URI));
+        assertStatus(UCode.OK, mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
     }
 
     @Test
@@ -220,7 +219,7 @@ public class ClientManagerTest extends TestBase {
         testRegisterClientService();
         final Client client = mClientManager.getClient(mClientToken);
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, new MockListener()));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, new MockListener()));
         assertEquals(client, mClientManager.getClient(mClientToken));
     }
 
@@ -228,23 +227,27 @@ public class ClientManagerTest extends TestBase {
     public void testRegisterClientPackageInfoFetchFailed() {
         simulateRemoteCall(null);
         assertStatus(UCode.UNAUTHENTICATED,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         assertNull(mClientManager.getClient(mClientToken));
     }
 
     @Test
-    public void testRegisterClientEntityNameNotDeclared() {
-        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, buildEntity(mEntity.getName(), 0)));
+    public void testRegisterClientEntityIdNotDeclared() {
+        simulateRemoteCall(buildPackageInfo(PACKAGE_NAME, new MetaDataBuilder()
+                .setEntityVersion(CLIENT_URI.getUeVersionMajor())
+                .build()));
         assertStatus(UCode.UNAUTHENTICATED,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         assertNull(mClientManager.getClient(mClientToken));
     }
 
     @Test
     public void testRegisterClientEntityVersionNotDeclared() {
-        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, buildEntity(null, mEntity.getVersionMajor())));
+        simulateRemoteCall(buildPackageInfo(PACKAGE_NAME, new MetaDataBuilder()
+                .setEntityId(CLIENT_URI.getUeId())
+                .build()));
         assertStatus(UCode.UNAUTHENTICATED,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener));
         assertNull(mClientManager.getClient(mClientToken));
     }
 
@@ -252,23 +255,19 @@ public class ClientManagerTest extends TestBase {
     @SuppressWarnings("DataFlowIssue")
     public void testRegisterClientInvalidArguments() {
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(null, mEntity, mClientToken, mListener));
+                mClientManager.registerClient(null, CLIENT_URI, mClientToken, mListener));
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient("", mEntity, mClientToken, mListener));
+                mClientManager.registerClient("", CLIENT_URI, mClientToken, mListener));
         assertStatus(UCode.INVALID_ARGUMENT,
                 mClientManager.registerClient(PACKAGE_NAME, null, mClientToken, mListener));
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(PACKAGE_NAME,
-                        buildEntity(null, mEntity.getVersionMajor()), mClientToken, mListener));
+                mClientManager.registerClient(PACKAGE_NAME, EMPTY_URI, mClientToken, mListener));
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(PACKAGE_NAME,
-                        buildEntity(mEntity.getName(), 0), mClientToken, mListener));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, null, mListener));
         assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, null, mListener));
-        assertStatus(UCode.INVALID_ARGUMENT,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, null));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, null));
         assertStatus(UCode.UNIMPLEMENTED,
-                mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, new Object()));
+                mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, new Object()));
     }
 
     @Test
@@ -325,7 +324,7 @@ public class ClientManagerTest extends TestBase {
     @Test
     public void testUnregisterClientUnauthenticated() {
         testRegisterClientApp();
-        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, mEntity));
+        simulateRemoteCall(buildPackageInfoService(PACKAGE_NAME, CLIENT_URI));
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
         assertStatus(UCode.UNAUTHENTICATED, mClientManager.unregisterClient(mClientToken));
@@ -350,16 +349,16 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testGetClients() {
-        mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener);
+        mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         assertFalse(mClientManager.getClients().isEmpty());
     }
 
     @Test
     public void testGetClient() {
-        mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener);
+        mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         final Client client = mClientManager.getClient(mClientToken);
         assertNotNull(client);
-        assertEquals(mEntity, client.getEntity());
+        assertEquals(CLIENT_URI, client.getUri());
     }
 
     @Test
@@ -375,10 +374,10 @@ public class ClientManagerTest extends TestBase {
 
     @Test
     public void testGetClientOrThrow() {
-        mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener);
+        mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         final Client client = mClientManager.getClientOrThrow(mClientToken);
         assertNotNull(client);
-        assertEquals(mEntity, client.getEntity());
+        assertEquals(CLIENT_URI, client.getUri());
     }
 
     @Test
@@ -397,18 +396,12 @@ public class ClientManagerTest extends TestBase {
         testRegisterClientRemote();
         final Client client = mClientManager.getRemoteClient();
         assertNotNull(client);
-        assertEquals(REMOTE_CLIENT, client.getEntity());
-    }
-
-    @Test
-    public void testIsRemoteClient() {
-        assertTrue(ClientManager.isRemoteClient(REMOTE_CLIENT));
-        assertFalse(ClientManager.isRemoteClient(CLIENT));
+        assertEquals(REMOTE_CLIENT_URI, client.getUri());
     }
 
     @Test
     public void testDefaultListener() {
-        mClientManager.registerClient(PACKAGE_NAME, mEntity, mClientToken, mListener);
+        mClientManager.registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         final Client client = mClientManager.getClient(mClientToken);
         final RegistrationListener listener = new RegistrationListener() {
             @Override

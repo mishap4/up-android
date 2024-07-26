@@ -21,20 +21,44 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+import androidx.room.TypeConverter
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State
+import org.eclipse.uprotocol.uri.serializer.UriSerializer
+import org.eclipse.uprotocol.uuid.serializer.UuidSerializer
+import org.eclipse.uprotocol.v1.UUID
+import org.eclipse.uprotocol.v1.UUri
 
-@Entity(tableName = SubscriptionsRecord.TABLE_NAME)
-class SubscriptionsRecord(
-    @PrimaryKey var topic: String,
-    val requestId: String,
-    val state: Int
-) {
+object DatabaseConverters {
+    @TypeConverter
+    fun toUri(value: String): UUri {
+        return UriSerializer.deserialize(value)
+    }
 
-    companion object {
-        const val TABLE_NAME = "subscriptions"
+    @TypeConverter
+    fun fromUri(uri: UUri): String {
+        return UriSerializer.serialize(uri)
+    }
+
+    @TypeConverter
+    fun toUuid(value: String): UUID {
+        return UuidSerializer.deserialize(value)
+    }
+
+    @TypeConverter
+    fun fromUuid(id: UUID): String {
+        return UuidSerializer.serialize(id)
+    }
+
+    @TypeConverter
+    fun toState(value: Int): State {
+        val state = State.forNumber(value)
+        return if ((state != null)) state else State.UNSUBSCRIBED
+    }
+
+    @TypeConverter
+    fun fromState(state: State): Int {
+        return state.number
     }
 }

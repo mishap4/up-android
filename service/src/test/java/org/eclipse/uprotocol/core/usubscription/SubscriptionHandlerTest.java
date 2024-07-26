@@ -21,46 +21,63 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription;
 
-import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.getClientUri;
-import static org.eclipse.uprotocol.core.internal.util.UUriUtils.toUriString;
+import static com.google.protobuf.util.Timestamps.fromMillis;
+import static com.google.protobuf.util.Timestamps.toMillis;
+
+import static org.eclipse.uprotocol.communication.UPayload.pack;
+import static org.eclipse.uprotocol.communication.UPayload.packToAny;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_FETCH_SUBSCRIBERS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_FETCH_SUBSCRIPTIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_REGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_SUBSCRIBE;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_UNREGISTER_FOR_NOTIFICATIONS;
+import static org.eclipse.uprotocol.core.usubscription.USubscription.METHOD_UNSUBSCRIBE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import static java.util.Collections.emptyList;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import android.content.Context;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.eclipse.uprotocol.core.TestBase;
+import org.eclipse.uprotocol.core.ubus.client.Credentials;
 import org.eclipse.uprotocol.core.usubscription.database.DatabaseHelper;
-import org.eclipse.uprotocol.core.usubscription.database.SubscribersRecord;
+import org.eclipse.uprotocol.core.usubscription.database.SubscriberRecord;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscribersResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.FetchSubscriptionsResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.NotificationsRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.NotificationsResponse;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscribeAttributes;
+import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
 import org.eclipse.uprotocol.core.usubscription.v3.Subscription;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionResponse;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus.State;
+import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeRequest;
+import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeResponse;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
-import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 import org.junit.Before;
 import org.junit.Test;
@@ -68,8 +85,6 @@ import org.junit.runner.RunWith;
 import org.mockito.stubbing.Answer;
 import org.robolectric.RuntimeEnvironment;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -80,13 +95,14 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 @RunWith(AndroidJUnit4.class)
-public class SubscriptionHandlerTest extends SubscriptionTestBase {
+public class SubscriptionHandlerTest extends TestBase {
+    private static final Credentials CLIENT_CREDENTIALS = new Credentials(PACKAGE_NAME, 0, 0, CLIENT_URI);
+
     private final ScheduledExecutorService mExecutor = mock(ScheduledExecutorService.class);
-    private SubscriptionHandler mSubscriptionHandler;
-    private DatabaseHelper mDbHelper;
-    private USubscription mUSubscription;
-    private CacheHandler mCacheHandler;
     private Context mContext;
+    private USubscription mUSubscription;
+    private DatabaseHelper mDatabaseHelper;
+    private SubscriptionHandler mSubscriptionHandler;
 
     private static void setLogLevel(int level) {
         USubscription.DEBUG = (level <= Log.DEBUG);
@@ -98,25 +114,29 @@ public class SubscriptionHandlerTest extends SubscriptionTestBase {
         setLogLevel(Log.VERBOSE);
         mContext = RuntimeEnvironment.getApplication();
         mUSubscription = mock(USubscription.class);
-        mDbHelper = mock(DatabaseHelper.class);
-        mCacheHandler = mock(CacheHandler.class);
-        mSubscriptionHandler = new SubscriptionHandler(mContext, mDbHelper, mCacheHandler);
+        mDatabaseHelper = mock(DatabaseHelper.class);
+        mSubscriptionHandler = new SubscriptionHandler(mContext, mDatabaseHelper);
+        doReturn(CLIENT_CREDENTIALS).when(mUSubscription).getCallerCredentials(any());
+        doReturn(1L).when(mDatabaseHelper).addSubscription(any());
+        doReturn(1L).when(mDatabaseHelper).addSubscriber(any());
+        doReturn(1).when(mDatabaseHelper).updateSubscriber(any());
+        doReturn(1).when(mDatabaseHelper).deleteSubscription(any());
+        doReturn(1).when(mDatabaseHelper).deleteSubscriber(any(), any());
         prepareExecuteOnSameThread();
-        when(mDbHelper.getPendingTopics()).thenReturn(emptyList());
         mSubscriptionHandler.init(mUSubscription);
     }
 
-    @SuppressWarnings({"ResultOfMethodCallIgnored", "BlockingMethodInNonBlockingContext","unused"})
+    @SuppressWarnings({"ResultOfMethodCallIgnored","unused"})
     private void prepareExecuteOnOtherThread(CountDownLatch latch) {
-        Executor executor = Executors.newSingleThreadExecutor();
-        doAnswer((Answer<Object>) invocationOnMock -> {
-            final Runnable task = invocationOnMock.getArgument(0);
+        final Executor executor = Executors.newSingleThreadExecutor();
+        doAnswer((Answer<Object>) it -> {
+            final Runnable task = it.getArgument(0);
             executor.execute(task);
             return null;
         }).when(mExecutor).execute(any(Runnable.class));
 
-        doAnswer((Answer<Object>) invocationOnMock -> {
-            final Runnable task = invocationOnMock.getArgument(0);
+        doAnswer((Answer<Object>) it -> {
+            final Runnable task = it.getArgument(0);
             executor.execute(() -> {
                 try {
                     latch.await(DELAY_LONG_MS, TimeUnit.MILLISECONDS);
@@ -130,517 +150,570 @@ public class SubscriptionHandlerTest extends SubscriptionTestBase {
     }
 
     private void prepareExecuteOnSameThread() {
-        doAnswer((Answer<Object>) invocationOnMock -> {
-            ((Runnable) invocationOnMock.getArgument(0)).run();
+        doAnswer((Answer<Object>) it -> {
+            ((Runnable) it.getArgument(0)).run();
             return null;
         }).when(mExecutor).execute(any(Runnable.class));
 
-        doAnswer((Answer<Object>) invocationOnMock -> {
-            ((Runnable) invocationOnMock.getArgument(0)).run();
+        doAnswer((Answer<Object>) it -> {
+            ((Runnable) it.getArgument(0)).run();
             return null;
         }).when(mExecutor).schedule(any(Runnable.class), anyLong(), any());
     }
 
+    private static UMessage buildSubscriptionRequestMessage(@NonNull UUri topic, @NonNull UUri subscriber, int expiry, int period) {
+        final SubscriptionRequest request = SubscriptionRequest.newBuilder()
+                .setTopic(topic)
+                .setSubscriber(SubscriberInfo.newBuilder().setUri(subscriber))
+                .setAttributes(SubscribeAttributes.newBuilder()
+                        .setExpire(fromMillis(expiry))
+                        .setSamplePeriodMs(period))
+                .build();
+        return UMessageBuilder.request(CLIENT_URI, METHOD_SUBSCRIBE, TTL).build(pack(request));
+    }
+
+    private static UMessage buildUnsubscribeRequestMessage(@NonNull UUri topic, @NonNull UUri subscriber) {
+        final UnsubscribeRequest request = UnsubscribeRequest.newBuilder()
+                .setTopic(topic)
+                .setSubscriber(SubscriberInfo.newBuilder().setUri(subscriber))
+                .build();
+        return UMessageBuilder.request(CLIENT_URI, METHOD_SUBSCRIBE, TTL).build(pack(request));
+    }
+
     @Test
     public void testInit() {
-        verify(mDbHelper, times(1)).init(mContext);
+        verify(mDatabaseHelper, times(1)).init(mContext);
     }
 
     @Test
-    public void testGetSubscribersEmpty() {
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.getSubscribers(any())).thenReturn(emptyList());
-        final Set<UUri> result = mSubscriptionHandler.getSubscribers(TestBase.RESOURCE_URI);
-        assertTrue(result.isEmpty());
+    public void testStartup() {
+        reset(mDatabaseHelper);
+        mSubscriptionHandler.startup();
+        verifyNoMoreInteractions(mDatabaseHelper);
     }
 
     @Test
-    public void testGetSubscribers() {
-        final List<String> sinks = List.of(LOCAL_CLIENT_URI, LOCAL_CLIENT2_URI);
-        final List<UUri> sinkUris = List.of(TestBase.LOCAL_CLIENT_URI, TestBase.LOCAL_CLIENT2_URI);
-        when(mDbHelper.getSubscribers(any())).thenReturn(sinks);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        assertEquals(new HashSet<>(sinkUris), mSubscriptionHandler.getSubscribers(TestBase.RESOURCE_URI));
-        verify(mDbHelper, times(1)).getSubscribers(any());
+    public void testShutdown() {
+        mSubscriptionHandler.shutdown();
+        verify(mDatabaseHelper, times(1)).shutdown();
     }
 
     @Test
-    public void testGetSubscribersExceptionally() {
-        when(mDbHelper.getSubscriptionState(any())).thenThrow(NullPointerException.class).thenReturn(
-                State.SUBSCRIBED_VALUE);
-        Set<UUri> result = mSubscriptionHandler.getSubscribers(TestBase.RESOURCE_URI);
-        assertTrue(result.isEmpty());
-
-        when(mDbHelper.getSubscribers(any())).thenThrow(NullPointerException.class);
-        result = mSubscriptionHandler.getSubscribers(TestBase.RESOURCE_URI);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
-    public void testCreateTopic() {
-        when(mDbHelper.addTopic(any())).thenReturn(1L);
-        when(mDbHelper.isRegisteredForNotification(any())).thenReturn(false);
-        final UStatus status = mSubscriptionHandler.createTopic(buildCreateTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.OK, status);
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
-        verify(mDbHelper, times(1)).addTopic(any());
-        verify(mUSubscription, times(1)).notifyTopicCreated(any(), any());
-    }
-
-    @Test
-    public void testCreateTopicNegative() {
-        assertStatus(UCode.PERMISSION_DENIED,
-                mSubscriptionHandler.createTopic(buildCreateTopicMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_CLIENT_URI)));
-        assertStatus(UCode.PERMISSION_DENIED,
-                mSubscriptionHandler.createTopic(buildCreateTopicMessage(TestBase.REMOTE_RESOURCE_URI,
-                        TestBase.LOCAL_CLIENT_URI)));
-        assertStatus(UCode.PERMISSION_DENIED,
-                mSubscriptionHandler.createTopic(buildCreateTopicMessage(TestBase.RESOURCE_URI,
-                        TestBase.REMOTE_SERVER_URI)));
-        assertStatus(UCode.PERMISSION_DENIED,
-                mSubscriptionHandler.createTopic(buildCreateTopicMessage(TestBase.REMOTE_RESOURCE_URI,
-                        TestBase.REMOTE_SERVER_URI)));
-    }
-
-    @Test
-    public void testCreateTopicInvalidRequest() {
-        final UStatus status = mSubscriptionHandler.createTopic(buildDeprecateTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.INVALID_ARGUMENT, status);
-    }
-
-    @Test
-    public void testCreateTopicExceptionally() {
-        when(mDbHelper.addTopic(any())).thenReturn(-1L);
-        final UStatus status = mSubscriptionHandler.createTopic(TestBase.RESOURCE_URI,
-                getClientUri(TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.ABORTED, status);
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
-        verify(mDbHelper, times(1)).addTopic(any());
-    }
-
-    @Test
-    public void testCreateTopicInfo() {
-        setLogLevel(Log.INFO);
-        final UStatus status = mSubscriptionHandler.createTopic(TestBase.RESOURCE_URI,
-                getClientUri(TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.OK, status);
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
-        verify(mDbHelper, times(1)).addTopic(any());
-    }
-
-    @Test
-    public void testIsTopicCreated() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        assertTrue(mSubscriptionHandler.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsTopicCreatedFalse() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(false);
-        assertFalse(mSubscriptionHandler.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsTopicCreatedExceptionally() {
-        when(mDbHelper.isTopicCreated(any())).thenThrow(NullPointerException.class);
-        assertFalse(mSubscriptionHandler.isTopicCreated(RESOURCE_URI));
-    }
-
-    @Test
-    public void testDeprecateTopicUnimplemented() {
-        final UStatus status = mSubscriptionHandler.deprecateTopic(buildDeprecateTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.UNIMPLEMENTED, status);
-    }
-
-    @Test
-    public void testDeprecateTopicExceptionally() {
-        UStatus status = mSubscriptionHandler.deprecateTopic(buildPublishMessage());
-        assertStatus(UCode.INVALID_ARGUMENT, status);
-
-        status = mSubscriptionHandler.deprecateTopic(buildDeprecateTopicMessage(TestBase.REMOTE_RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertStatus(UCode.PERMISSION_DENIED, status);
-
-        status = mSubscriptionHandler.deprecateTopic(buildDeprecateTopicMessage(TestBase.RESOURCE_URI,
-                TestBase.REMOTE_SERVER_URI));
-        assertStatus(UCode.PERMISSION_DENIED, status);
-    }
-
-    @Test
-    public void testDeprecateTopic() {
-        setLogLevel(Log.DEBUG);
-        assertStatus(UCode.UNIMPLEMENTED, mSubscriptionHandler.deprecateTopic(TestBase.RESOURCE_URI));
-    }
-
-    @Test
-    public void testRequestDataSubscriptionRequest() {
-        final SubscriptionRequest request = SubscriptionRequest.newBuilder().setTopic(TestBase.RESOURCE_URI).build();
-        final RequestData requestData = new RequestData(request);
-        assertEquals(TestBase.RESOURCE_URI, requestData.topic);
-    }
-
-    @Test
-    public void testSubscribeTopicNotCreated() {
-        final UMessage message = buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        assertNotNull(mSubscriptionHandler.subscribe(message));
-        assertEquals(State.UNSUBSCRIBED, mSubscriptionHandler.getSubscriptionState(RESOURCE_URI));
-        verify(mUSubscription, times(0)).notifySubscriptionChanged(any());
+    public void testShouldNotify() {
+        assertFalse(SubscriptionHandler.shouldNotify(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI),
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI)));
+        assertTrue(SubscriptionHandler.shouldNotify(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, 0),
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, 0)));
+        assertTrue(SubscriptionHandler.shouldNotify(
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, 0),
+                new SubscriberRecord(RESOURCE_URI, CLIENT_URI, 0, PERIOD)));
     }
 
     @Test
     public void testSubscribe() {
-        setLogLevel(Log.INFO);
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        when(mDbHelper.getSubscriptionState(any()))
-                .thenReturn(State.UNSUBSCRIBED.getNumber())
-                .thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.addSubscription(any())).thenReturn(1L);
-        when(mDbHelper.getPublisherIfRegistered(any())).thenReturn(LOCAL_SERVER_URI);
-        final SubscriptionResponse response = mSubscriptionHandler.subscribe(
-                buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertNotNull(response);
+        doReturn(State.UNSUBSCRIBED).doReturn(State.SUBSCRIBED)
+                .when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(true).when(mDatabaseHelper).isObserved(RESOURCE_URI);
+        final UMessage requestMessage = buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD);
+        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
         assertEquals(State.SUBSCRIBED, response.getStatus().getState());
-        verify(mDbHelper, times(1)).addSubscription(any());
-        verify(mDbHelper, times(1)).addSubscriber(any());
-        verify(mUSubscription, times(1)).sendSubscriptionUpdate(any(), any());
-        verify(mUSubscription, times(1)).notifySubscriptionChanged(any());
+        assertEquals(RESOURCE_URI, response.getTopic());
+        verify(mDatabaseHelper, times(0)).updateSubscriber(any());
+        verify(mDatabaseHelper, times(1)).addSubscription(any());
+        verify(mDatabaseHelper, times(1)).addSubscriber(any());
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(SERVICE_URI), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.SUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
     }
 
-    @Test
-    public void testSubscriberAlreadyExists() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.getSubscribers(any())).thenReturn(List.of(LOCAL_CLIENT_URI));
-        final SubscriptionResponse response = mSubscriptionHandler.subscribe(
-                buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertNotNull(response);
-        assertEquals(UCode.OK, response.getStatus().getCode());
-        verify(mDbHelper, times(0)).addSubscriber(any());
-    }
-
-    //Future use case
     @Test
     public void testSubscribeFromRemote() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.addSubscription(newSubscriptionsRecord(REMOTE_CLIENT_URI, REQUEST_ID))).thenReturn(1L);
-        SubscriptionResponse response = mSubscriptionHandler.subscribe(
-                buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI, TestBase.REMOTE_CLIENT_URI));
-        assertNotNull(response);
-        assertEquals(State.SUBSCRIBED, response.getStatus().getState());
-    }
-
-    @Test
-    public void testSubscribeExceptionally() {
-        //pass wrong message type to trigger InvalidProtocolBufferException
-        SubscriptionResponse response = mSubscriptionHandler.subscribe(
-                buildCreateTopicMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI));
-        assertNotNull(response);
-        assertEquals(State.UNSUBSCRIBED, response.getStatus().getState());
-
-        doThrow(SubscriptionException.class).when(mDbHelper).addSubscription(any());
-        response = mSubscriptionHandler.subscribe(buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertNotNull(response);
-        assertNotSame(UCode.OK, response.getStatus().getCode());
-
-        doThrow(NullPointerException.class).when(mDbHelper).addSubscription(any());
-        response = mSubscriptionHandler.subscribe(buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertNotNull(response);
-        assertNotSame(UCode.OK, response.getStatus().getCode());
-
-        doThrow(IllegalStateException.class).when(mDbHelper).addSubscription(any());
-        response = mSubscriptionHandler.subscribe(buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_SERVER_URI));
-        assertNotNull(response);
-        assertNotSame(UCode.OK, response.getStatus().getCode());
-    }
-
-    @Test
-    public void testSubscribeRemote() {
-        final UMessage requestMessage = buildRemoteSubscriptionRequestMessage(TestBase.REMOTE_RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
-        assertNotNull(response);
-        assertEquals(UCode.UNIMPLEMENTED, response.getStatus().getCode());
-        verify(mDbHelper, times(0)).addSubscription(any());
-        verify(mDbHelper, times(0)).addSubscriber(any());
-    }
-
-    @Test
-    public void testAddSubscriptionFailure() {
-        final UMessage requestMessage = buildRemoteSubscriptionRequestMessage(TestBase.LOCAL_RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.UNSUBSCRIBED.getNumber());
-        when(mDbHelper.addSubscription(any())).thenReturn(-1L);
-        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
-        assertNotNull(response);
-        assertEquals(UCode.ABORTED, response.getStatus().getCode());
-        verify(mDbHelper, times(1)).addSubscription(any());
-        verify(mDbHelper, times(0)).addSubscriber(any());
-    }
-
-    @Test
-    public void testAddSubscriberFailure() {
-        final UMessage requestMessage = buildRemoteSubscriptionRequestMessage(TestBase.LOCAL_RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI);
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.addSubscriber(any())).thenReturn(-1L);
-        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
-        assertNotNull(response);
-        assertEquals(UCode.ABORTED, response.getStatus().getCode());
-        verify(mDbHelper, times(0)).addSubscription(any());
-        verify(mDbHelper, times(1)).addSubscriber(any());
-    }
-
-    @Test
-    public void testUnsubscribeInvalidRequest() {
-        final UStatus status = mSubscriptionHandler.unsubscribe(
-                buildLocalSubscriptionRequestMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertStatus(UCode.INVALID_ARGUMENT, status);
-    }
-
-    @Test
-    public void testUnsubscribeLocalFoundSubscription() {
-        when(mDbHelper.getSubscriptionState(any()))
-                .thenReturn(State.SUBSCRIBED.getNumber())
-                .thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.getSubscribers(any())).thenReturn(List.of(LOCAL_CLIENT_URI));
-        when(mDbHelper.getSubscriber(any(), any())).thenReturn(
-                newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, SUBSCRIBERS_DETAILS)).thenReturn(null);
-        when(mDbHelper.getPublisherIfRegistered(any())).thenReturn(LOCAL_SERVER_URI);
-        UStatus status = mSubscriptionHandler.unsubscribe(
-                buildUnsubscribeMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertStatus(UCode.OK, status);
         setLogLevel(Log.INFO);
-        status = mSubscriptionHandler.unsubscribe(
-                buildUnsubscribeMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertStatus(UCode.OK, status);
-        verify(mDbHelper, times(1)).deleteSubscriber(any(), any());
-        verify(mDbHelper, times(1)).deleteTopicFromSubscriptions(any());
+        doReturn(State.UNSUBSCRIBED).doReturn(State.SUBSCRIBED)
+                .when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        final UMessage requestMessage = buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI_REMOTE, EXPIRY_TIME, PERIOD);
+        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
+        assertEquals(State.SUBSCRIBED, response.getStatus().getState());
+        assertEquals(RESOURCE_URI, response.getTopic());
+        verify(mDatabaseHelper, times(0)).updateSubscriber(any());
+        verify(mDatabaseHelper, times(1)).addSubscription(any());
+        verify(mDatabaseHelper, times(1)).addSubscriber(any());
+        verify(mUSubscription, times(0)).sendSubscriptionUpdate(any(), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI_REMOTE, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.SUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
     }
 
     @Test
-    public void testUnsubscribeSubscriptionNotFound() {
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.UNSUBSCRIBED.getNumber());
-        final UStatus status = mSubscriptionHandler.unsubscribe(buildUnsubscribeMessage(TestBase.RESOURCE_URI,
-                TestBase.LOCAL_CLIENT_URI));
-        assertStatus(UCode.OK, status);
+    public void testSubscribeUpdate() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        final UMessage requestMessage = buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD);
+        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
+        assertEquals(State.SUBSCRIBED, response.getStatus().getState());
+        assertEquals(RESOURCE_URI, response.getTopic());
+        verify(mDatabaseHelper, times(1)).updateSubscriber(any());
+        verify(mDatabaseHelper, times(0)).addSubscriber(any());
+        verify(mUSubscription, times(0)).sendSubscriptionUpdate(any(), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.SUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
+    }
+
+    @Test
+    public void testSubscribeDuplicate() {
+        setLogLevel(Log.INFO);
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(1L).when(mDatabaseHelper).addSubscriber(any());
+        final UMessage requestMessage = buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, 0, 0);
+        final SubscriptionResponse response = mSubscriptionHandler.subscribe(requestMessage);
+        assertEquals(State.SUBSCRIBED, response.getStatus().getState());
+        assertEquals(RESOURCE_URI, response.getTopic());
+        verify(mDatabaseHelper, times(1)).updateSubscriber(any());
+        verify(mDatabaseHelper, times(0)).addSubscriber(any());
+        verify(mUSubscription, times(0)).sendSubscriptionUpdate(any(), any());
+        verify(mUSubscription, times(0)).notifySubscriptionChanged(any());
+    }
+
+    @Test
+    public void testSubscribeInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.subscribe(UMessageBuilder.request(CLIENT_URI, METHOD_SUBSCRIBE, TTL).build()));
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(EMPTY_URI, CLIENT_URI, 0, 0)));
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(RESOURCE_URI, EMPTY_URI, 0, 0)));
+    }
+
+    @Test
+    public void testSubscribeAddSubscriptionFailure() {
+        doReturn(-1L).when(mDatabaseHelper).addSubscription(any());
+        assertThrowsStatusException(UCode.INTERNAL, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, 0, 0)));
+    }
+
+    @Test
+    public void testSubscribeAddSubscriberFailure() {
+        doReturn(-1L).when(mDatabaseHelper).addSubscriber(any());
+        assertThrowsStatusException(UCode.INTERNAL, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, 0, 0)));
+    }
+
+    @Test
+    public void testSubscribeUpdateSubscriberFailure() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI)).when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(-1).when(mDatabaseHelper).updateSubscriber(any());
+        assertThrowsStatusException(UCode.INTERNAL, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(RESOURCE_URI, CLIENT_URI, 0, 0)));
+    }
+
+    @Test
+    public void testSubscribeRemoteUnimplemented() {
+        assertThrowsStatusException(UCode.UNIMPLEMENTED, () ->
+                mSubscriptionHandler.subscribe(buildSubscriptionRequestMessage(RESOURCE_URI_REMOTE, CLIENT_URI, 0, 0)));
+    }
+
+    @Test
+    public void testUnsubscribe() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(0).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        doReturn(true).when(mDatabaseHelper).isObserved(RESOURCE_URI);
+        final UMessage requestMessage = buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI);
+        final UnsubscribeResponse response = mSubscriptionHandler.unsubscribe(requestMessage);
+        assertNotNull(response);
+        verify(mDatabaseHelper, times(1)).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        verify(mDatabaseHelper, times(1)).deleteSubscription(RESOURCE_URI);
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(CLIENT_URI), any());
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(SERVICE_URI), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.UNSUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
     }
 
     @Test
     public void testUnsubscribeFromRemote() {
         setLogLevel(Log.INFO);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.getSubscriber(any(), any())).thenReturn(
-                newSubscribersRecord(RESOURCE_URI, REMOTE_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        when(mDbHelper.getSubscribers(any())).thenReturn(List.of(REMOTE_CLIENT_URI));
-        final UStatus status = mSubscriptionHandler.unsubscribe(buildUnsubscribeMessage(TestBase.RESOURCE_URI,
-                TestBase.REMOTE_CLIENT_URI));
-        assertStatus(UCode.OK, status);
-        verify(mDbHelper, times(1)).deleteSubscriber(any(), any());
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI_REMOTE, EXPIRY_TIME, PERIOD))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI_REMOTE);
+        doReturn(0).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        final UMessage requestMessage = buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI_REMOTE);
+        final UnsubscribeResponse response = mSubscriptionHandler.unsubscribe(requestMessage);
+        assertNotNull(response);
+        verify(mDatabaseHelper, times(1)).deleteSubscriber(RESOURCE_URI, CLIENT_URI_REMOTE);
+        verify(mDatabaseHelper, times(1)).deleteSubscription(RESOURCE_URI);
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(CLIENT_URI_REMOTE), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI_REMOTE, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.UNSUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
     }
 
     @Test
-    public void testUnsubscribeWithMultipleSubscribersForSameTopic() {
-        setLogLevel(Log.INFO);
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
-        when(mDbHelper.getSubscriber(any(), any())).thenReturn(
-                newSubscribersRecord(RESOURCE_URI, REMOTE_CLIENT_URI, SUBSCRIBERS_DETAILS));
-        when(mDbHelper.getSubscribers(any())).thenReturn(
-                List.of(REMOTE_CLIENT_URI, LOCAL_CLIENT_URI, LOCAL_CLIENT2_URI));
-        final UStatus status = mSubscriptionHandler.unsubscribe(buildUnsubscribeMessage(TestBase.RESOURCE_URI,
-                TestBase.REMOTE_CLIENT_URI));
-        assertStatus(UCode.OK, status);
-        verify(mDbHelper, times(1)).deleteSubscriber(any(), any());
+    public void testUnsubscribeNotLastSubscriber() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(1).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        final UMessage requestMessage = buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI);
+        final UnsubscribeResponse response = mSubscriptionHandler.unsubscribe(requestMessage);
+        assertNotNull(response);
+        verify(mDatabaseHelper, times(1)).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        verify(mDatabaseHelper, times(0)).deleteSubscription(RESOURCE_URI);
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(CLIENT_URI), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(EXPIRY_TIME, toMillis(update.getAttributes().getExpire()));
+            assertEquals(PERIOD, update.getAttributes().getSamplePeriodMs());
+            assertEquals(State.UNSUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
+    }
+
+    @Test
+    public void testUnsubscribeSubscriptionNotFound() {
+        doReturn(State.UNSUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        final UMessage requestMessage = buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI);
+        final UnsubscribeResponse response = mSubscriptionHandler.unsubscribe(requestMessage);
+        assertNotNull(response);
+    }
+
+    @Test
+    public void testUnsubscribeSubscriberNotFound() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE2_URI);
+        final UMessage requestMessage = buildUnsubscribeRequestMessage(RESOURCE2_URI, CLIENT_URI);
+        final UnsubscribeResponse response = mSubscriptionHandler.unsubscribe(requestMessage);
+        assertNotNull(response);
+    }
+
+    @Test
+    public void testUnsubscribeInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.unsubscribe(UMessageBuilder.request(CLIENT_URI, METHOD_UNSUBSCRIBE, TTL).build()));
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.unsubscribe(buildUnsubscribeRequestMessage(EMPTY_URI, CLIENT_URI)));
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.unsubscribe(buildUnsubscribeRequestMessage(RESOURCE_URI, EMPTY_URI)));
+    }
+
+    @Test
+    public void testUnsubscribeDeleteSubscriberFailure() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(0).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        doReturn(-1).when(mDatabaseHelper).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        assertThrowsStatusException(UCode.INTERNAL, () ->
+                mSubscriptionHandler.unsubscribe(buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI)));
+    }
+
+    @Test
+    public void testUnsubscribeDeleteSubscriptionFailure() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI)).when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(0).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        doReturn(-1).when(mDatabaseHelper).deleteSubscription(RESOURCE_URI);
+        assertThrowsStatusException(UCode.INTERNAL, () ->
+                mSubscriptionHandler.unsubscribe(buildUnsubscribeRequestMessage(RESOURCE_URI, CLIENT_URI)));
+    }
+
+    @Test
+    public void testUnsubscribeInternal() {
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        mSubscriptionHandler.unsubscribe(RESOURCE_URI, CLIENT_URI);
+        verify(mDatabaseHelper, times(1)).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(CLIENT_URI), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(State.UNSUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
+    }
+
+    @Test
+    public void testUnsubscribeInternalFailure() {
+        doReturn(new SubscriberRecord(RESOURCE_URI, CLIENT_URI))
+                .when(mDatabaseHelper).getSubscriber(RESOURCE_URI, CLIENT_URI);
+        doReturn(-1).when(mDatabaseHelper).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        mSubscriptionHandler.unsubscribe(RESOURCE_URI, CLIENT_URI);
+        verify(mUSubscription, times(0)).sendSubscriptionUpdate(any(), any());
+        verify(mUSubscription, times(0)).notifySubscriptionChanged(any());
+    }
+
+    @Test
+    public void testUnsubscribeAllFromPackage() {
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI)))
+                .when(mDatabaseHelper).getSubscribersFromPackage(PACKAGE_NAME);
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        doReturn(0).when(mDatabaseHelper).getSubscribersCount(RESOURCE_URI);
+        mSubscriptionHandler.unsubscribeAllFromPackage(PACKAGE_NAME);
+        verify(mDatabaseHelper, times(1)).deleteSubscriber(RESOURCE_URI, CLIENT_URI);
+        verify(mDatabaseHelper, times(1)).deleteSubscription(RESOURCE_URI);
+        verify(mUSubscription, times(1)).sendSubscriptionUpdate(eq(CLIENT_URI), any());
+        verify(mUSubscription, times(1)).notifySubscriptionChanged(argThat(update -> {
+            assertEquals(RESOURCE_URI, update.getTopic());
+            assertEquals(CLIENT_URI, update.getSubscriber().getUri());
+            assertEquals(State.UNSUBSCRIBED, update.getStatus().getState());
+            return true;
+        }));
+    }
+
+    @Test
+    public void testUnsubscribeAllFromPackageFailure() {
+        doThrow(new RuntimeException()).when(mDatabaseHelper).getSubscribersFromPackage(PACKAGE_NAME);
+        mSubscriptionHandler.unsubscribeAllFromPackage(PACKAGE_NAME);
+        verify(mUSubscription, times(0)).sendSubscriptionUpdate(any(), any());
+        verify(mUSubscription, times(0)).notifySubscriptionChanged(any());
     }
 
     @Test
     public void testFetchSubscriptionsByTopic() {
-        final Subscription subscription = Subscription.newBuilder().setTopic(TestBase.RESOURCE_URI).build();
-        List<Subscription> subscriptions = new ArrayList<>();
-        subscriptions.add(subscription);
-        when(mCacheHandler.fetchSubscriptionsByTopic((UUri) any())).thenReturn(subscriptions);
-        final FetchSubscriptionsResponse response = mSubscriptionHandler.fetchSubscriptions(
-                buildFetchSubscriptionsByTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertEquals(STATUS_OK, response.getStatus());
-        verify(mCacheHandler, times(1)).fetchSubscriptionsByTopic((UUri) any());
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD)))
+                .when(mDatabaseHelper).getSubscribersByTopic(RESOURCE_URI);
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                .build(pack(FetchSubscriptionsRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        final FetchSubscriptionsResponse response = mSubscriptionHandler.fetchSubscriptions(requestMessage);
+        final Subscription subscription = response.getSubscriptions(0);
+        assertEquals(RESOURCE_URI, subscription.getTopic());
+        assertEquals(CLIENT_URI, subscription.getSubscriber().getUri());
+        assertEquals(EXPIRY_TIME, toMillis(subscription.getAttributes().getExpire()));
+        assertEquals(PERIOD, subscription.getAttributes().getSamplePeriodMs());
+        assertEquals(State.SUBSCRIBED, subscription.getStatus().getState());
     }
 
     @Test
     public void testFetchSubscriptionsBySubscriber() {
-        final Subscription subscription =
-                Subscription.newBuilder().setSubscriber(buildSubscriber(TestBase.LOCAL_CLIENT_URI)).build();
-        List<Subscription> subscriptions = new ArrayList<>();
-        subscriptions.add(subscription);
-        when(mCacheHandler.fetchSubscriptionsBySubscriber(any())).thenReturn(subscriptions);
-        final FetchSubscriptionsResponse response = mSubscriptionHandler.fetchSubscriptions(
-                buildFetchSubscriptionsBySubscriberMessage(TestBase.LOCAL_CLIENT_URI));
-        assertEquals(STATUS_OK, response.getStatus());
-        verify(mCacheHandler, times(1)).fetchSubscriptionsBySubscriber(any());
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD)))
+                .when(mDatabaseHelper).getSubscribersByUri(CLIENT_URI);
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                .build(pack(FetchSubscriptionsRequest.newBuilder()
+                        .setSubscriber(SubscriberInfo.newBuilder().setUri(CLIENT_URI))
+                        .build()));
+        final FetchSubscriptionsResponse response = mSubscriptionHandler.fetchSubscriptions(requestMessage);
+        final Subscription subscription = response.getSubscriptions(0);
+        assertEquals(RESOURCE_URI, subscription.getTopic());
+        assertEquals(CLIENT_URI, subscription.getSubscriber().getUri());
+        assertEquals(EXPIRY_TIME, toMillis(subscription.getAttributes().getExpire()));
+        assertEquals(PERIOD, subscription.getAttributes().getSamplePeriodMs());
+        assertEquals(State.SUBSCRIBED, subscription.getStatus().getState());
     }
 
     @Test
-    public void testFetchSubscriptions() {
-        setLogLevel(Log.INFO);
-        final FetchSubscriptionsResponse response =
-                mSubscriptionHandler.fetchSubscriptions(buildFetchSubscriptionsRequestMessage());
-        assertEquals(UCode.NOT_FOUND, response.getStatus().getCode());
+    public void testFetchSubscriptionsInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.fetchSubscriptions(
+                        UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL).build()));
     }
 
     @Test
-    public void testFetchSubscriptionsExceptionally() {
-        final FetchSubscriptionsResponse response = mSubscriptionHandler.fetchSubscriptions(
-                buildFetchSubscribersMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI));
-        assertNotEquals(STATUS_OK, response.getStatus());
+    public void testFetchSubscriptionsUnknownRequestCase() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.fetchSubscriptions(
+                        UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                                .build(packToAny(FetchSubscriptionsRequest.getDefaultInstance()))));
     }
 
     @Test
-    public void testFetchSubscribersValid() {
-        final UMessage message = buildFetchSubscribersMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        List<SubscribersRecord> subscribersRecords = new ArrayList<>();
-        subscribersRecords.add(newSubscribersRecord(RESOURCE_URI, LOCAL_CLIENT_URI, ""));
-        when(mDbHelper.fetchSubscriptionsByTopic(any())).thenReturn(subscribersRecords);
-        assertEquals(UCode.OK, mSubscriptionHandler.fetchSubscribers(message).getStatus().getCode());
+    public void testFetchSubscribers() {
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD)))
+                .when(mDatabaseHelper).getSubscribersByTopic(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIPTIONS, TTL)
+                .build(pack(FetchSubscribersRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        final FetchSubscribersResponse response = mSubscriptionHandler.fetchSubscribers(requestMessage);
+        final SubscriberInfo subscriber = response.getSubscribers(0);
+        assertEquals(CLIENT_URI, subscriber.getUri());
     }
 
     @Test
-    public void testFetchSubscribersResponseNotFound() {
-        setLogLevel(Log.INFO);
-        final UMessage message = buildFetchSubscribersMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        assertEquals(UCode.NOT_FOUND, mSubscriptionHandler.fetchSubscribers(message).getStatus().getCode());
-    }
-
-    @Test
-    public void testFetchSubscribersInvalid() {
-        final UMessage message = buildCreateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        assertEquals(UCode.ABORTED, mSubscriptionHandler.fetchSubscribers(message).getStatus().getCode());
+    public void testFetchSubscribersInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.fetchSubscribers(
+                        UMessageBuilder.request(CLIENT_URI, METHOD_FETCH_SUBSCRIBERS, TTL).build()));
     }
 
     @Test
     public void testRegisterForNotifications() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        assertStatus(UCode.OK, mSubscriptionHandler.registerForNotifications(
-                buildRegisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isTopicCreated(any());
+        doReturn(1L).when(mDatabaseHelper).addObserver(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(SERVICE_URI, METHOD_REGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(pack(NotificationsRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        final NotificationsResponse response = mSubscriptionHandler.registerForNotifications(requestMessage);
+        assertNotNull(response);
     }
 
     @Test
-    public void testRegisterForNotificationsNotFound() {
+    public void testRegisterForNotificationsDuplicate() {
         setLogLevel(Log.INFO);
-        when(mDbHelper.isTopicCreated(any())).thenReturn(false);
-        assertStatus(UCode.NOT_FOUND, mSubscriptionHandler.registerForNotifications(
-                buildRegisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isTopicCreated(any());
+        testRegisterForNotifications();
+        testRegisterForNotifications();
     }
 
     @Test
-    public void testRegisterForNotificationsExceptionally() {
-        when(mDbHelper.isTopicCreated(any())).thenReturn(true);
-        doThrow(NullPointerException.class).when(mDbHelper).updateTopic(RESOURCE_URI, true);
-        assertStatus(UCode.INVALID_ARGUMENT, mSubscriptionHandler.registerForNotifications(
-                buildRegisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isTopicCreated(any());
+    public void testRegisterForNotificationsInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.registerForNotifications(
+                        UMessageBuilder.request(SERVICE_URI, METHOD_REGISTER_FOR_NOTIFICATIONS, TTL).build()));
     }
 
     @Test
-    public void testRegisterForNotificationsInvalid() {
-        //pass wrong message type to trigger Exception
-        final UMessage message = buildCreateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        assertEquals(UCode.INVALID_ARGUMENT, mSubscriptionHandler.registerForNotifications(message).getCode());
+    public void testRegisterForNotificationsAddObserverFailure() {
+        doReturn(-1L).when(mDatabaseHelper).addObserver(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(SERVICE_URI, METHOD_REGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(pack(NotificationsRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        assertThrowsStatusException(UCode.INTERNAL, () -> mSubscriptionHandler.registerForNotifications(requestMessage));
     }
 
     @Test
-    public void testUnregisterForNotificationsAndIsSubscriberTrue() {
-        when(mDbHelper.isRegisteredForNotification(any())).thenReturn(true);
-        doNothing().when(mDbHelper).updateTopic(RESOURCE_URI, false);
-        assertStatus(UCode.OK, mSubscriptionHandler.unregisterForNotifications(
-                buildUnregisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
+    public void testUnregisterForNotifications() {
+        doReturn(1).when(mDatabaseHelper).deleteObserver(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(SERVICE_URI, METHOD_UNREGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(pack(NotificationsRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        final NotificationsResponse response = mSubscriptionHandler.unregisterForNotifications(requestMessage);
+        assertNotNull(response);
     }
 
     @Test
-    public void testUnregisterForNotificationsAndIsSubscriberFalse() {
+    public void testUnregisterForNotificationsDuplicate() {
         setLogLevel(Log.INFO);
-        when(mDbHelper.isRegisteredForNotification(any())).thenReturn(false);
-        assertStatus(UCode.NOT_FOUND, mSubscriptionHandler.unregisterForNotifications(
-                buildUnregisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
+        testUnregisterForNotifications();
+        testUnregisterForNotifications();
     }
 
     @Test
-    public void testUnregisterForNotificationsExceptionally() {
-        when(mDbHelper.isRegisteredForNotification(any())).thenThrow(NullPointerException.class);
-        assertStatus(UCode.INVALID_ARGUMENT, mSubscriptionHandler.unregisterForNotifications(
-                buildUnregisterForNotificationsMessage(TestBase.RESOURCE_URI,
-                        TestBase.LOCAL_SERVER_URI)));
-        verify(mDbHelper, times(1)).isRegisteredForNotification(any());
+    public void testUnregisterForNotificationsInvalidRequest() {
+        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () ->
+                mSubscriptionHandler.unregisterForNotifications(
+                        UMessageBuilder.request(SERVICE_URI, METHOD_UNREGISTER_FOR_NOTIFICATIONS, TTL).build()));
     }
 
     @Test
-    public void tesUnregisterForNotificationsInvalid() {
-        //pass wrong message type to trigger Exception
-        final UMessage message = buildCreateTopicMessage(TestBase.RESOURCE_URI, TestBase.LOCAL_CLIENT_URI);
-        assertEquals(UCode.INVALID_ARGUMENT, mSubscriptionHandler.unregisterForNotifications(message).getCode());
+    public void testUnregisterForNotificationsDeleteObserverFailure() {
+        doReturn(-1).when(mDatabaseHelper).deleteObserver(RESOURCE_URI);
+        final UMessage requestMessage = UMessageBuilder.request(SERVICE_URI, METHOD_UNREGISTER_FOR_NOTIFICATIONS, TTL)
+                .build(pack(NotificationsRequest.newBuilder()
+                        .setTopic(RESOURCE_URI)
+                        .build()));
+        assertThrowsStatusException(UCode.INTERNAL, () -> mSubscriptionHandler.unregisterForNotifications(requestMessage));
     }
 
     @Test
     public void testIsTopicSubscribed() {
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBE_PENDING.getNumber());
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
         assertTrue(mSubscriptionHandler.isTopicSubscribed(RESOURCE_URI));
-        verify(mDbHelper, times(1)).getSubscriptionState(any());
-    }
-
-    @Test
-    public void testIsTopicSubscribedEmpty() {
+        doReturn(State.SUBSCRIBE_PENDING).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
+        assertTrue(mSubscriptionHandler.isTopicSubscribed(RESOURCE_URI));
+        doReturn(State.UNSUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
         assertFalse(mSubscriptionHandler.isTopicSubscribed(RESOURCE_URI));
-    }
-
-    @Test
-    public void testIsTopicSubscribedExceptionally() {
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(-1);
-        when(mSubscriptionHandler.isTopicSubscribed(any())).thenThrow(IllegalStateException.class);
-        assertFalse(mSubscriptionHandler.isTopicSubscribed(RESOURCE_URI));
-        verify(mDbHelper, times(1)).getSubscriptionState(any());
     }
 
     @Test
     public void testGetSubscriptionState() {
-        when(mDbHelper.getSubscriptionState(any())).thenReturn(State.SUBSCRIBED.getNumber());
+        doReturn(State.SUBSCRIBED).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
         assertEquals(State.SUBSCRIBED, mSubscriptionHandler.getSubscriptionState(RESOURCE_URI));
-        verify(mDbHelper, times(1)).getSubscriptionState(any());
     }
 
     @Test
-    public void testGetSubscriptionStateExceptionally() {
-        when(mDbHelper.getSubscriptionState(any())).thenThrow(NullPointerException.class);
+    public void testGetSubscriptionStateFailure() {
+        doThrow(new RuntimeException()).when(mDatabaseHelper).getSubscriptionState(RESOURCE_URI);
         assertEquals(State.UNSUBSCRIBED, mSubscriptionHandler.getSubscriptionState(RESOURCE_URI));
     }
 
     @Test
-    public void testGetPublisher() {
-        when(mDbHelper.getPublisher(any())).thenReturn(LOCAL_SERVER_URI);
-        assertEquals(TestBase.LOCAL_SERVER_URI, mSubscriptionHandler.getPublisher(TestBase.RESOURCE_URI));
-        verify(mDbHelper, times(1)).getPublisher(any());
+    public void testGetSubscriptions() {
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD)))
+                .when(mDatabaseHelper).getSubscribersByTopic(RESOURCE_URI);
+        final Set<SubscriptionData> subscriptions = mSubscriptionHandler.getSubscriptions(RESOURCE_URI);
+        assertEquals(1, subscriptions.size());
+        final SubscriptionData subscription = subscriptions.iterator().next();
+        assertEquals(RESOURCE_URI, subscription.topic());
+        assertEquals(CLIENT_URI, subscription.subscriber());
+        assertEquals(EXPIRY_TIME, subscription.expiryTime());
+        assertEquals(PERIOD, subscription.samplingPeriod());
     }
 
     @Test
-    public void testGetPublisherExceptionally() {
-        when(mDbHelper.getPublisher(any())).thenThrow(NullPointerException.class);
-        assertEquals("", toUriString(mSubscriptionHandler.getPublisher(any())));
-        verify(mDbHelper, times(1)).getPublisher(any());
+    public void testGetSubscriptionsFailure() {
+        doThrow(new RuntimeException()).when(mDatabaseHelper).getSubscribersByTopic(RESOURCE_URI);
+        assertTrue(mSubscriptionHandler.getSubscriptions(RESOURCE_URI).isEmpty());
+    }
+
+    @Test
+    public void testGetSubscriptionsWithExpiryTime() {
+        doReturn(List.of(new SubscriberRecord(RESOURCE_URI, CLIENT_URI, EXPIRY_TIME, PERIOD)))
+                .when(mDatabaseHelper).getSubscribersWithExpiryTime();
+        final Set<SubscriptionData> subscriptions = mSubscriptionHandler.getSubscriptionsWithExpiryTime();
+        assertEquals(1, subscriptions.size());
+        final SubscriptionData subscription = subscriptions.iterator().next();
+        assertEquals(RESOURCE_URI, subscription.topic());
+        assertEquals(CLIENT_URI, subscription.subscriber());
+        assertEquals(EXPIRY_TIME, subscription.expiryTime());
+        assertEquals(PERIOD, subscription.samplingPeriod());
+    }
+
+    @Test
+    public void testGetSubscriptionsWithExpiryTimeFailure() {
+        doThrow(new RuntimeException()).when(mDatabaseHelper).getSubscribersWithExpiryTime();
+        assertTrue(mSubscriptionHandler.getSubscriptionsWithExpiryTime().isEmpty());
+    }
+
+    @Test
+    public void testGetSubscribedPackages() {
+        List<String> packages = List.of(PACKAGE_NAME, PACKAGE2_NAME);
+        doReturn(packages).when(mDatabaseHelper).getSubscribedPackages();
+        assertEquals(packages, mSubscriptionHandler.getSubscribedPackages());
+    }
+
+    @Test
+    public void testGetSubscribedPackagesFailure() {
+        doThrow(new RuntimeException()).when(mDatabaseHelper).getSubscribedPackages();
+        assertTrue(mSubscriptionHandler.getSubscribedPackages().isEmpty());
     }
 }

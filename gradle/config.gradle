@@ -14,9 +14,15 @@ ext {
         versionCode     : 1,
         versionName     : "2024.1.1-1",
         toolsVersion    : '34.0.0',
-        sdkVersion      : 31,
-        minSdkVersion   : 31,
+        sdkVersion      : 34,
+        minSdkVersion   : 34,
         namespace       : "org.eclipse.uprotocol.core",
         artifact        : "UCoreService",
+        jvm : [
+            version : [
+                java    : JavaVersion.VERSION_17,
+                kotlin  : "17",
+            ]
+        ],
     ]
 }

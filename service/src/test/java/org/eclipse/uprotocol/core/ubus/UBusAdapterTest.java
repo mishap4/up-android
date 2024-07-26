@@ -25,33 +25,29 @@ package org.eclipse.uprotocol.core.ubus;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
-import static org.junit.Assert.assertArrayEquals;
+import static org.eclipse.uprotocol.uri.factory.UriFactory.ANY;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
-import static java.util.Collections.emptyList;
 
 import android.os.Binder;
 import android.os.IBinder;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
-import org.eclipse.uprotocol.common.UStatusException;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.core.TestBase;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UStatus;
-import org.eclipse.uprotocol.v1.internal.ParcelableUEntity;
 import org.eclipse.uprotocol.v1.internal.ParcelableUMessage;
 import org.eclipse.uprotocol.v1.internal.ParcelableUStatus;
 import org.eclipse.uprotocol.v1.internal.ParcelableUUri;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import java.util.List;
 
 @RunWith(AndroidJUnit4.class)
 public class UBusAdapterTest extends TestBase {
@@ -69,100 +65,78 @@ public class UBusAdapterTest extends TestBase {
     @Test
     public void testRegisterClient() {
         final UStatus status = STATUS_OK;
-        when(mUBus.registerClient(PACKAGE_NAME, CLIENT, mClientToken, mListener)).thenReturn(status);
+        doReturn(status).when(mUBus).registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.registerClient(PACKAGE_NAME, new ParcelableUEntity(CLIENT), mClientToken, 0, mListener));
+                mUBusAdapter.registerClient(PACKAGE_NAME, new ParcelableUUri(CLIENT_URI), mClientToken, 0, mListener));
     }
 
     @Test
-    public void testRegisterClientExceptionally() {
+    public void testRegisterClientFailure() {
         final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.registerClient(PACKAGE_NAME, CLIENT, mClientToken, mListener))
-                .thenThrow(new UStatusException(status));
+        doThrow(new UStatusException(status)).when(mUBus).registerClient(PACKAGE_NAME, CLIENT_URI, mClientToken, mListener);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.registerClient(PACKAGE_NAME, new ParcelableUEntity(CLIENT), mClientToken, 0, mListener));
+                mUBusAdapter.registerClient(PACKAGE_NAME, new ParcelableUUri(CLIENT_URI), mClientToken, 0, mListener));
     }
 
     @Test
     public void testUnregisterClient() {
         final UStatus status = STATUS_OK;
-        when(mUBus.unregisterClient(mClientToken)).thenReturn(status);
+        doReturn(status).when(mUBus).unregisterClient(mClientToken);
         assertEquals(new ParcelableUStatus(status), mUBusAdapter.unregisterClient(mClientToken));
     }
 
     @Test
-    public void testUnregisterClientExceptionally() {
+    public void testUnregisterClientFailure() {
         final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.unregisterClient(mClientToken)).thenThrow(new UStatusException(status));
+        doThrow(new UStatusException(status)).when(mUBus).unregisterClient(mClientToken);
         assertEquals(new ParcelableUStatus(status), mUBusAdapter.unregisterClient(mClientToken));
     }
 
     @Test
     public void testSend() {
-        final UMessage message = buildPublishMessage();
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         final UStatus status = STATUS_OK;
-        when(mUBus.send(message, mClientToken)).thenReturn(status);
+        doReturn(status).when(mUBus).send(message, mClientToken);
         assertEquals(new ParcelableUStatus(status), mUBusAdapter.send(new ParcelableUMessage(message), mClientToken));
     }
 
     @Test
-    public void testSendExceptionally() {
-        final UMessage message = buildPublishMessage();
+    public void testSendFailure() {
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.send(message, mClientToken)).thenThrow(new UStatusException(status));
+        doThrow(new UStatusException(status)).when(mUBus).send(message, mClientToken);
         assertEquals(new ParcelableUStatus(status), mUBusAdapter.send(new ParcelableUMessage(message), mClientToken));
     }
 
     @Test
-    public void testPull() {
-        final UMessage message = buildPublishMessage();
-        when(mUBus.pull(RESOURCE_URI, 1, 0, mClientToken)).thenReturn(List.of(message));
-        ParcelableUMessage[] messages = mUBusAdapter.pull(new ParcelableUUri(RESOURCE_URI), 1, 0, mClientToken);
-        assertArrayEquals(new ParcelableUMessage[] { new ParcelableUMessage(message) }, messages);
-    }
-
-    @Test
-    public void testPullExceptionally() {
+    public void testEnableDispatchingFailure() {
         final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.pull(RESOURCE_URI, 1, 0, mClientToken)).thenThrow(new UStatusException(status));
-        assertNull(mUBusAdapter.pull(new ParcelableUUri(RESOURCE_URI), 1, 0, mClientToken));
-    }
-
-    @Test
-    public void testPullNotPublished() {
-        when(mUBus.pull(RESOURCE_URI, 1, 0, mClientToken)).thenReturn(emptyList());
-        assertNull(mUBusAdapter.pull(new ParcelableUUri(RESOURCE_URI), 1, 0, mClientToken));
-    }
-
-    @Test
-    public void testEnableDispatchingExceptionally() {
-        final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.enableDispatching(RESOURCE_URI, 0, mClientToken)).thenThrow(new UStatusException(status));
+        doThrow(new UStatusException(status)).when(mUBus).enableDispatching(RESOURCE_FILTER, mClientToken);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.enableDispatching(new ParcelableUUri(RESOURCE_URI), 0, mClientToken));
+                mUBusAdapter.enableDispatching(new ParcelableUUri(RESOURCE_URI), new ParcelableUUri(ANY), 0, mClientToken));
     }
 
     @Test
     public void testEnableDispatching() {
         final UStatus status = STATUS_OK;
-        when(mUBus.enableDispatching(RESOURCE_URI, 0, mClientToken)).thenReturn(status);
+        doReturn(status).when(mUBus).enableDispatching(RESOURCE_FILTER, mClientToken);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.enableDispatching(new ParcelableUUri(RESOURCE_URI), 0, mClientToken));
+                mUBusAdapter.enableDispatching(new ParcelableUUri(RESOURCE_URI), new ParcelableUUri(ANY), 0, mClientToken));
     }
 
     @Test
-    public void testDisableDispatchingExceptionally() {
+    public void testDisableDispatchingFailure() {
         final UStatus status = buildStatus(UCode.UNKNOWN);
-        when(mUBus.disableDispatching(RESOURCE_URI, 0, mClientToken)).thenThrow(new UStatusException(status));
+        doThrow(new UStatusException(status)).when(mUBus).disableDispatching(RESOURCE_FILTER, mClientToken);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.disableDispatching(new ParcelableUUri(RESOURCE_URI), 0, mClientToken));
+                mUBusAdapter.disableDispatching(new ParcelableUUri(RESOURCE_URI), new ParcelableUUri(ANY), 0, mClientToken));
     }
 
     @Test
     public void testDisableDispatching() {
         final UStatus status = STATUS_OK;
-        when(mUBus.disableDispatching(RESOURCE_URI, 0, mClientToken)).thenReturn(status);
+        doReturn(status).when(mUBus).disableDispatching(RESOURCE_FILTER, mClientToken);
         assertEquals(new ParcelableUStatus(status),
-                mUBusAdapter.disableDispatching(new ParcelableUUri(RESOURCE_URI), 0, mClientToken));
+                mUBusAdapter.disableDispatching(new ParcelableUUri(RESOURCE_URI), new ParcelableUUri(ANY), 0, mClientToken));
     }
 }

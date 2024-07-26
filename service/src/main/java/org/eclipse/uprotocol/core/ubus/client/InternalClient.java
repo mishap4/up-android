@@ -24,7 +24,6 @@
 package org.eclipse.uprotocol.core.ubus.client;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkNotNull;
-import static org.eclipse.uprotocol.core.ubus.client.ClientManager.isRemoteClient;
 
 import android.os.IBinder;
 
@@ -35,23 +34,11 @@ import org.eclipse.uprotocol.v1.UMessage;
 
 public class InternalClient extends Client {
     private final UListener mListener;
-    private final boolean mRemote;
 
     public InternalClient(@NonNull Credentials credentials, @NonNull IBinder token,
             @NonNull UListener listener) {
         super(credentials, token, null);
         mListener = checkNotNull(listener, "Listener is null");
-        mRemote = isRemoteClient(credentials.getEntity());
-    }
-
-    @Override
-    public boolean isRemote() {
-        return mRemote;
-    }
-
-    @Override
-    public boolean isInternal() {
-        return true;
     }
 
     @Override

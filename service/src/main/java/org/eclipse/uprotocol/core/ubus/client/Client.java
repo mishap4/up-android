@@ -24,7 +24,6 @@
 package org.eclipse.uprotocol.core.ubus.client;
 
 import static org.eclipse.uprotocol.common.util.log.Formatter.joinGrouped;
-import static org.eclipse.uprotocol.common.util.log.Formatter.quote;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
 
@@ -35,16 +34,17 @@ import android.os.RemoteException;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Key;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UUri;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class Client {
+    public static final int REMOTE_ID = 0;
+
     private final Credentials mCredentials;
     private final IBinder mToken;
     private final DeathRecipient mDeathRecipient;
@@ -82,11 +82,7 @@ public abstract class Client {
     }
 
     public @NonNull UUri getUri() {
-        return mCredentials.getUri();
-    }
-
-    public @NonNull UEntity getEntity() {
-        return mCredentials.getEntity();
+        return mCredentials.uri();
     }
 
     public @NonNull IBinder getToken() {
@@ -97,23 +93,25 @@ public abstract class Client {
         return mDeathRecipient;
     }
 
+    public boolean isAlive() {
+        return mToken.isBinderAlive();
+    }
+
     public final boolean isLocal() {
         return !isRemote();
     }
 
     public boolean isRemote() {
-        return false;
+        return mCredentials.uri().getUeId() == REMOTE_ID;
     }
-
-    public abstract boolean isInternal();
 
     public abstract @NonNull Object getListener();
 
     public abstract void send(@NonNull UMessage message) throws RemoteException;
 
     public @NonNull String toString() {
-        return joinGrouped(Key.PID, mCredentials.getPid(), Key.UID, mCredentials.getUid(),
-                Key.PACKAGE, quote(mCredentials.getPackageName()), Key.ENTITY, stringify(mCredentials.getEntity()),
+        return joinGrouped(Key.PID, mCredentials.pid(), Key.UID, mCredentials.uid(),
+                Key.PACKAGE, mCredentials.packageName(), Key.URI, stringify(mCredentials.uri()),
                 Key.TOKEN, stringify(mToken));
     }
 }

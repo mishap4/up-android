@@ -28,10 +28,6 @@ import static android.os.Binder.getCallingUid;
 import static android.os.Process.myPid;
 import static android.os.Process.myUid;
 
-import static com.google.common.base.Strings.isNullOrEmpty;
-
-import static org.eclipse.uprotocol.UPClient.META_DATA_ENTITY_NAME;
-import static org.eclipse.uprotocol.UPClient.META_DATA_ENTITY_VERSION;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.STATUS_OK;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.buildStatus;
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
@@ -45,6 +41,9 @@ import static org.eclipse.uprotocol.common.util.log.Formatter.tag;
 import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isLocalUri;
 import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
+import static org.eclipse.uprotocol.transport.UTransportAndroid.META_DATA_ENTITY_ID;
+import static org.eclipse.uprotocol.transport.UTransportAndroid.META_DATA_ENTITY_VERSION;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isEmpty;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -59,13 +58,12 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
-import org.eclipse.uprotocol.common.UStatusException;
 import org.eclipse.uprotocol.common.util.log.Key;
+import org.eclipse.uprotocol.communication.UStatusException;
 import org.eclipse.uprotocol.core.ubus.IUListener;
 import org.eclipse.uprotocol.core.ubus.UBus;
 import org.eclipse.uprotocol.transport.UListener;
 import org.eclipse.uprotocol.v1.UCode;
-import org.eclipse.uprotocol.v1.UEntity;
 import org.eclipse.uprotocol.v1.UStatus;
 import org.eclipse.uprotocol.v1.UUri;
 
@@ -79,7 +77,6 @@ import java.util.stream.Stream;
 
 public class ClientManager extends UBus.Component {
     private static final String TAG = tag(UBus.Component.TAG, "ClientManager");
-    public static final String REMOTE_CLIENT_NAME = "core.ustreamer";
 
     private final Object mLock = new Object();
     @GuardedBy("mLock")
@@ -130,17 +127,17 @@ public class ClientManager extends UBus.Component {
 
     @SuppressWarnings("java:S2201")
     private void checkCallerCredentials(@NonNull Credentials credentials) {
-        if (myPid() == credentials.getPid() && myUid() == credentials.getUid()) {
+        if (myPid() == credentials.pid() && myUid() == credentials.uid()) {
             return;
         }
-        checkArgument(isLocalUri(credentials.getUri()), UCode.UNAUTHENTICATED, "Client URI authority is not local");
-        final UEntity entity = credentials.getUri().getEntity();
-        Arrays.stream(emptyIfNull(mPackageManager.getPackagesForUid(credentials.getUid())))
-                .filter(packageName -> credentials.getPackageName().equals(packageName))
+        checkArgument(isLocalUri(credentials.uri()), UCode.UNAUTHENTICATED, "Client URI authority is not local");
+        final UUri clientUri = credentials.uri();
+        Arrays.stream(emptyIfNull(mPackageManager.getPackagesForUid(credentials.uid())))
+                .filter(packageName -> credentials.packageName().equals(packageName))
                 .filter(packageName -> {
                     try {
-                        return containsEntity(mPackageManager.getPackageInfo(packageName,
-                                PackageManager.GET_SERVICES | PackageManager.GET_META_DATA/*, userHandle*/), entity);
+                        return contains(mPackageManager.getPackageInfo(packageName,
+                                PackageManager.GET_SERVICES | PackageManager.GET_META_DATA), clientUri);
                     } catch (PackageManager.NameNotFoundException e) {
                         logStatus(Log.WARN, TAG, "getPackageInfo", buildStatus(UCode.UNAVAILABLE, e.getMessage()));
                         return false;
@@ -148,25 +145,25 @@ public class ClientManager extends UBus.Component {
                 })
                 .findFirst()
                 .orElseThrow(() -> new UStatusException(UCode.UNAUTHENTICATED, "Missing or not matching '" +
-                        META_DATA_ENTITY_NAME + "' and '" + META_DATA_ENTITY_VERSION + "' meta-data in manifest"));
+                        META_DATA_ENTITY_ID + "' and '" + META_DATA_ENTITY_VERSION + "' meta-data in manifest"));
     }
 
-    private static boolean containsEntity(@NonNull PackageInfo packageInfo, @NonNull UEntity entity) {
+    private static boolean contains(@NonNull PackageInfo packageInfo, @NonNull UUri clientUri) {
         return Stream.concat(Stream.of(packageInfo.applicationInfo),
                         (packageInfo.services != null) ? Stream.of(packageInfo.services) : Stream.empty())
                 .filter(Objects::nonNull)
-                .map(info -> entity.equals(getEntity(info)) ? entity : null)
+                .map(info -> clientUri.equals(getClientUri(info)) ? clientUri : null)
                 .anyMatch(Objects::nonNull);
     }
 
-    private static UEntity getEntity(@NonNull PackageItemInfo info) {
+    private static UUri getClientUri(@NonNull PackageItemInfo info) {
         if (info.metaData != null) {
-            final String name = info.metaData.getString(META_DATA_ENTITY_NAME);
-            final int version = info.metaData.getInt(META_DATA_ENTITY_VERSION);
-            if (!isNullOrEmpty(name) && version > 0) {
-                return UEntity.newBuilder()
-                        .setName(name)
-                        .setVersionMajor(version)
+            final int id = info.metaData.getInt(META_DATA_ENTITY_ID, -1);
+            final int version = info.metaData.getInt(META_DATA_ENTITY_VERSION, -1);
+            if (id >= 0 && version > 0) {
+                return UUri.newBuilder()
+                        .setUeId(id)
+                        .setUeVersionMajor(version)
                         .build();
             }
         }
@@ -178,7 +175,7 @@ public class ClientManager extends UBus.Component {
             return;
         }
         final Credentials credentials = client.getCredentials();
-        if (pid == credentials.getPid() && uid == credentials.getUid()) {
+        if (pid == credentials.pid() && uid == credentials.uid()) {
             return;
         }
         throw new UStatusException(UCode.UNAUTHENTICATED,
@@ -203,12 +200,11 @@ public class ClientManager extends UBus.Component {
         }
     }
 
-    public @NonNull <T> UStatus registerClient(@NonNull String packageName, @NonNull UEntity entity,
+    public @NonNull <T> UStatus registerClient(@NonNull String packageName, @NonNull UUri clientUri,
             @NonNull IBinder clientToken, @NonNull T listener) {
         try {
             checkStringNotEmpty(packageName, "Package name is empty");
-            checkStringNotEmpty(entity.getName(), "Entity name is empty");
-            checkArgument(entity.hasVersionMajor(), "Entity version is empty");
+            checkArgument(!isEmpty(clientUri), "Client URI is empty");
             checkNotNull(clientToken, "Client token is null");
             checkNotNull(listener, "Listener is null");
             Client client;
@@ -219,10 +215,7 @@ public class ClientManager extends UBus.Component {
                             "Client is already registered with a different listener");
                     return STATUS_OK;
                 }
-                final Credentials credentials =
-                        new Credentials(packageName, getCallingPid(), getCallingUid(), UUri.newBuilder()
-                                .setEntity(entity)
-                                .build());
+                final Credentials credentials = new Credentials(packageName, getCallingPid(), getCallingUid(), clientUri);
                 checkCallerCredentials(credentials);
                 client = newClient(credentials, clientToken, listener);
                 mClients.put(clientToken, client);
@@ -235,7 +228,7 @@ public class ClientManager extends UBus.Component {
             return STATUS_OK;
         } catch (Exception e) {
             return logStatus(Log.ERROR, TAG, "registerClient", toStatus(e),
-                    Key.PACKAGE, quote(packageName), Key.ENTITY, stringify(entity));
+                    Key.PACKAGE, quote(packageName), Key.URI, stringify(clientUri));
         }
     }
 
@@ -285,9 +278,5 @@ public class ClientManager extends UBus.Component {
         synchronized (mLock) {
             return mRemoteClient;
         }
-    }
-
-    public static boolean isRemoteClient(@NonNull UEntity entity) {
-        return entity.getName().equals(REMOTE_CLIENT_NAME);
     }
 }

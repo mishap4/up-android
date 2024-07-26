@@ -21,60 +21,32 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription;
 
-import static java.util.Collections.emptyList;
+import static org.eclipse.uprotocol.core.usubscription.SubscriptionUtils.buildSubscribeAttributes;
 
 import androidx.annotation.NonNull;
 
-import com.google.protobuf.Any;
-
+import org.eclipse.uprotocol.core.usubscription.database.SubscriberRecord;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscribeAttributes;
-import org.eclipse.uprotocol.core.usubscription.v3.SubscriberInfo;
 import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionRequest;
 import org.eclipse.uprotocol.core.usubscription.v3.UnsubscribeRequest;
 import org.eclipse.uprotocol.v1.UUri;
 
-import java.util.List;
-
-class RequestData {
-    final UUri topic;
-    final UUri subscriber;
-    final List<Any> subscriberDetails;
-    final SubscribeAttributes attributes;
-
-    RequestData(@NonNull UUri topic, @NonNull UUri subscriber, @NonNull SubscribeAttributes attributes) {
-        this(topic, subscriber, emptyList(), attributes);
+public record RequestData(@NonNull UUri topic, @NonNull UUri subscriber, @NonNull SubscribeAttributes attributes) {
+    public RequestData(@NonNull UUri topic, @NonNull UUri subscriber) {
+        this(topic, subscriber, SubscribeAttributes.getDefaultInstance());
     }
 
-    RequestData(@NonNull UUri topic, @NonNull UUri subscriber,
-            @NonNull List<Any> subscriberDetails, @NonNull SubscribeAttributes attributes) {
-        this.topic = topic;
-        this.subscriber = subscriber;
-        this.subscriberDetails = subscriberDetails;
-        this.attributes = attributes;
+    public RequestData(@NonNull SubscriptionRequest request) {
+        this(request.getTopic(), request.getSubscriber().getUri(), request.getAttributes());
     }
 
-    RequestData(@NonNull SubscriptionRequest request) {
-        this.topic = request.getTopic();
-        this.subscriber = request.getSubscriber().getUri();
-        this.subscriberDetails = request.getSubscriber().getDetailsList();
-        this.attributes = request.getAttributes();
+    public RequestData(@NonNull UnsubscribeRequest request) {
+        this(request.getTopic(), request.getSubscriber().getUri(), SubscribeAttributes.getDefaultInstance());
     }
 
-    RequestData(@NonNull UnsubscribeRequest request) {
-        this.topic = request.getTopic();
-        this.subscriber = request.getSubscriber().getUri();
-        this.subscriberDetails = request.getSubscriber().getDetailsList();
-        this.attributes = SubscribeAttributes.getDefaultInstance();
-    }
-
-    @NonNull
-    SubscriberInfo buildSubscriber() {
-        return SubscriberInfo.newBuilder()
-                .setUri(subscriber)
-                .addAllDetails(subscriberDetails)
-                .build();
+    public RequestData(@NonNull SubscriberRecord subscriberRecord) {
+        this(subscriberRecord.getTopic(), subscriberRecord.getSubscriber(), buildSubscribeAttributes(subscriberRecord));
     }
 }

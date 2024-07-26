@@ -21,41 +21,54 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription.database
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
+import org.eclipse.uprotocol.v1.UUri
 
 @Dao
 interface SubscribersDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    fun addSubscriber(event: SubscribersRecord): Long
+    fun addSubscriber(record: SubscriberRecord): Long
 
-    @Query("DELETE FROM subscribers WHERE topicUri = :topic")
-    fun deleteTopic(topic: String): Int
+    @Update(onConflict = OnConflictStrategy.REPLACE)
+    fun updateSubscriber(record: SubscriberRecord): Int
 
-    @Query("DELETE FROM subscribers WHERE topicUri = :topic AND subscriberUri = :subscriber")
-    fun deleteSubscriber(topic: String, subscriber: String): Int
+    @Query("DELETE FROM subscribers WHERE topic = :topic AND subscriber = :subscriber")
+    fun deleteSubscriber(topic: UUri, subscriber: UUri): Int
 
-    @Query("SELECT subscriberUri FROM subscribers WHERE topicUri = :topic")
-    fun getSubscribers(topic: String): List<String>
+    @Query("DELETE FROM subscribers WHERE topic = :topic")
+    fun deleteSubscribers(topic: UUri): Int
+
+    @Query("SELECT COUNT(*) FROM subscribers WHERE topic = :topic")
+    fun getSubscribersCount(topic: UUri): Int
 
     @Query("SELECT * FROM subscribers")
-    fun getAllSubscriberRecords(): List<SubscribersRecord>
+    fun getAllSubscribers(): List<SubscriberRecord>
 
-    @Query("SELECT * FROM subscribers WHERE topicUri = :topic AND subscriberUri = :subscriber")
-    fun getSubscriber(topic: String, subscriber: String): SubscribersRecord
+    @Query("SELECT * FROM subscribers WHERE topic = :topic AND subscriber = :subscriber")
+    fun getSubscriber(topic: UUri, subscriber: UUri): SubscriberRecord?
 
-    @Query("SELECT * FROM subscribers WHERE topicUri = :topic ORDER BY id LIMIT 1")
-    fun getFirstSubscriberForTopic(topic: String): SubscribersRecord
+    @Query("SELECT * FROM subscribers WHERE topic = :topic ORDER BY topic LIMIT 1")
+    fun getFirstSubscriberForTopic(topic: UUri): SubscriberRecord?
 
-    @Query("SELECT * FROM subscribers WHERE topicUri = :topic")
-    fun getSubscriptionsByTopic(topic: String): List<SubscribersRecord>
+    @Query("SELECT * FROM subscribers WHERE expiryTime > 0")
+    fun getSubscribersWithExpiryTime(): List<SubscriberRecord>
 
-    @Query("SELECT * FROM subscribers WHERE subscriberUri = :subscriber")
-    fun getSubscriptionsBySubscriber(subscriber: String): List<SubscribersRecord>
+    @Query("SELECT * FROM subscribers WHERE packageName = :packageName")
+    fun getSubscribersFromPackage(packageName: String): List<SubscriberRecord>
+
+    @Query("SELECT DISTINCT packageName FROM subscribers WHERE packageName <> ''")
+    fun getSubscribedPackages(): List<String>
+
+    @Query("SELECT * FROM subscribers WHERE topic = :topic")
+    fun getSubscribersByTopic(topic: UUri): List<SubscriberRecord>
+
+    @Query("SELECT * FROM subscribers WHERE subscriber = :subscriber")
+    fun getSubscribersByUri(subscriber: UUri): List<SubscriberRecord>
 }

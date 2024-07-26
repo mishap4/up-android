@@ -24,91 +24,53 @@
 package org.eclipse.uprotocol.core.internal.util;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.checkArgument;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isRpcMethod;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isRpcResponse;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.isTopic;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.matchesAuthority;
+import static org.eclipse.uprotocol.uri.validator.UriValidator.matchesEntity;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
-import org.eclipse.uprotocol.common.UStatusException;
-import org.eclipse.uprotocol.uri.factory.UResourceBuilder;
-import org.eclipse.uprotocol.uri.serializer.LongUriSerializer;
-import org.eclipse.uprotocol.uri.validator.UriValidator;
-import org.eclipse.uprotocol.v1.UAuthority;
-import org.eclipse.uprotocol.v1.UResource;
 import org.eclipse.uprotocol.v1.UUri;
-import org.eclipse.uprotocol.validation.ValidationResult;
 
 public interface UUriUtils {
-    UResource RESPONSE_RESOURCE = UResourceBuilder.forRpcResponse();
-
     static @NonNull UUri checkTopicUriValid(@NonNull UUri uri) {
-        final ValidationResult result = UriValidator.validate(uri);
-        if (result.isFailure()) {
-            throw new UStatusException(result.toStatus());
-        }
-        checkArgument(isTopic(uri.getResource()), "Invalid topic URI");
+        checkArgument(isTopic(uri), "Invalid topic URI");
         return uri;
     }
 
     static @NonNull UUri checkMethodUriValid(@NonNull UUri uri) {
-        final ValidationResult result = UriValidator.validateRpcMethod(uri);
-        if (result.isFailure()) {
-            throw new UStatusException(result.toStatus());
-        }
-        checkArgument(isMethod(uri.getResource()), "Invalid method URI");
+        checkArgument(isRpcMethod(uri), "Invalid method URI");
         return uri;
     }
 
     static @NonNull UUri checkResponseUriValid(@NonNull UUri uri) {
-        final ValidationResult result = UriValidator.validateRpcResponse(uri);
-        if (result.isFailure()) {
-            throw new UStatusException(result.toStatus());
-        }
+        checkArgument(isRpcResponse(uri), "Invalid response URI");
         return uri;
     }
 
-    static @NonNull UUri getClientUri(@NonNull UUri uri) {
-        return UUri.newBuilder(uri).clearResource().build();
+    static @NonNull UUri removeResource(@NonNull UUri uri) {
+        return UUri.newBuilder(uri).clearResourceId().build();
     }
 
-    static @NonNull UUri addAuthority(@NonNull UUri uri, @NonNull UAuthority authority) {
-        return UUri.newBuilder(uri).setAuthority(authority).build();
+    static @NonNull UUri addAuthority(@NonNull UUri uri, @NonNull String authority) {
+        return UUri.newBuilder(uri).setAuthorityName(authority).build();
     }
 
     static @NonNull UUri removeAuthority(@NonNull UUri uri) {
-        return UUri.newBuilder(uri).clearAuthority().build();
+        return UUri.newBuilder(uri).clearAuthorityName().build();
     }
 
     static boolean isSameClient(@NonNull UUri uri1, @NonNull UUri uri2) {
-        return uri1.getAuthority().equals(uri2.getAuthority()) && uri1.getEntity().equals(uri2.getEntity());
-    }
-
-    static boolean isRemoteUri(@NonNull UUri uri) {
-        return UriValidator.isRemote(uri.getAuthority());
+        return matchesAuthority(uri1, uri2) && matchesEntity(uri1, uri2);
     }
 
     static boolean isLocalUri(@NonNull UUri uri) {
-        return !isRemoteUri(uri);
+        return uri.getAuthorityName().isBlank();
     }
 
-    static boolean isMethodUri(@NonNull UUri uri) {
-        return isMethod(uri.getResource());
-    }
-
-    private static boolean isTopic(@NonNull UResource resource) {
-        final String name = resource.getName();
-        return !name.isEmpty() && !RESPONSE_RESOURCE.getName().equals(resource.getName());
-    }
-
-    private static boolean isMethod(@NonNull UResource resource) {
-        return RESPONSE_RESOURCE.getName().equals(resource.getName()) &&
-                !RESPONSE_RESOURCE.getInstance().equals(resource.getInstance());
-    }
-
-    static @NonNull String toUriString(@Nullable UUri uri) {
-        return LongUriSerializer.instance().serialize(uri);
-    }
-
-    static @NonNull UUri toUri(@Nullable String string) {
-        return LongUriSerializer.instance().deserialize(string);
+    static boolean isRemoteUri(@NonNull UUri uri) {
+        return !isLocalUri(uri);
     }
 }

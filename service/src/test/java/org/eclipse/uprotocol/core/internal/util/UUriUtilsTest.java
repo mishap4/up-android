@@ -36,7 +36,6 @@ import org.junit.runner.RunWith;
 
 @RunWith(AndroidJUnit4.class)
 public class UUriUtilsTest extends TestBase {
-
     @Test
     public void testCheckTopicUriValid() {
         assertEquals(RESOURCE_URI, UUriUtils.checkTopicUriValid(RESOURCE_URI));
@@ -47,7 +46,6 @@ public class UUriUtilsTest extends TestBase {
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkTopicUriValid(EMPTY_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkTopicUriValid(CLIENT_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkTopicUriValid(METHOD_URI));
-        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkTopicUriValid(RESPONSE_URI));
     }
 
     @Test
@@ -60,73 +58,52 @@ public class UUriUtilsTest extends TestBase {
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkMethodUriValid(EMPTY_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkMethodUriValid(CLIENT_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkMethodUriValid(RESOURCE_URI));
-        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkMethodUriValid(RESPONSE_URI));
     }
 
     @Test
     public void testCheckResponseUriValid() {
-        assertEquals(RESPONSE_URI, UUriUtils.checkResponseUriValid(RESPONSE_URI));
+        assertEquals(CLIENT_URI, UUriUtils.checkResponseUriValid(CLIENT_URI));
     }
 
     @Test
     public void testCheckResponseUriValidNegative() {
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkResponseUriValid(EMPTY_URI));
-        assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkResponseUriValid(CLIENT_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkResponseUriValid(RESOURCE_URI));
         assertThrowsStatusException(UCode.INVALID_ARGUMENT, () -> UUriUtils.checkResponseUriValid(METHOD_URI));
     }
 
     @Test
-    public void testGetClientUri() {
-        assertEquals(CLIENT_URI, UUriUtils.getClientUri(buildResponseUri(CLIENT_URI)));
+    public void testRemoveResource() {
+        assertEquals(SERVICE_URI, UUriUtils.removeResource(RESOURCE_URI));
     }
 
     @Test
     public void testAddAuthority() {
-        assertEquals(REMOTE_SERVER_URI, UUriUtils.addAuthority(SERVER_URI, REMOTE_AUTHORITY));
+        assertEquals(SERVICE_URI_REMOTE, UUriUtils.addAuthority(SERVICE_URI, AUTHORITY_REMOTE));
     }
 
     @Test
     public void testRemoveAuthority() {
-        assertEquals(SERVER_URI, UUriUtils.removeAuthority(REMOTE_SERVER_URI));
+        assertEquals(SERVICE_URI, UUriUtils.removeAuthority(SERVICE_URI_REMOTE));
     }
 
     @Test
     public void testIsSameClient() {
-        assertTrue(UUriUtils.isSameClient(METHOD_URI, SERVER_URI));
-        assertTrue(UUriUtils.isSameClient(REMOTE_METHOD_URI, REMOTE_SERVER_URI));
-        assertFalse(UUriUtils.isSameClient(METHOD_URI, SERVER2_URI));
-        assertFalse(UUriUtils.isSameClient(REMOTE_METHOD_URI, SERVER_URI));
+        assertTrue(UUriUtils.isSameClient(METHOD_URI, SERVICE_URI));
+        assertTrue(UUriUtils.isSameClient(METHOD_URI_REMOTE, SERVICE_URI_REMOTE));
+        assertFalse(UUriUtils.isSameClient(METHOD_URI, SERVICE2_URI));
+        assertFalse(UUriUtils.isSameClient(METHOD_URI_REMOTE, SERVICE_URI));
     }
 
     @Test
     public void testIsRemoteUri() {
-        assertTrue(UUriUtils.isRemoteUri(REMOTE_METHOD_URI));
-        assertFalse(UUriUtils.isRemoteUri(LOCAL_METHOD_URI));
+        assertTrue(UUriUtils.isRemoteUri(METHOD_URI_REMOTE));
+        assertFalse(UUriUtils.isRemoteUri(METHOD_URI));
     }
 
     @Test
     public void testIsLocal() {
-        assertTrue(UUriUtils.isLocalUri(LOCAL_METHOD_URI));
-        assertFalse(UUriUtils.isLocalUri(REMOTE_METHOD_URI));
-    }
-
-    @Test
-    public void testIsMethodUri() {
-        assertTrue(UUriUtils.isMethodUri(METHOD_URI));
-        assertFalse(UUriUtils.isMethodUri(RESOURCE_URI));
-        assertFalse(UUriUtils.isMethodUri(RESPONSE_URI));
-    }
-
-    @Test
-    public void testToUriString() {
-        assertEquals("/test.srv/1/door.front_left#Door", UUriUtils.toUriString(RESOURCE_URI));
-        assertEquals("", UUriUtils.toUriString(null));
-    }
-
-    @Test
-    public void testToUri() {
-        assertEquals(RESOURCE_URI, UUriUtils.toUri("/test.srv/1/door.front_left#Door"));
-        assertEquals("", UUriUtils.toUriString(null));
+        assertTrue(UUriUtils.isLocalUri(METHOD_URI));
+        assertFalse(UUriUtils.isLocalUri(METHOD_URI_REMOTE));
     }
 }

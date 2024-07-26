@@ -40,26 +40,21 @@ public class CredentialsTest extends TestBase {
 
     @Test
     public void testGetPackageName() {
-        assertEquals(PACKAGE_NAME, mCredentials.getPackageName());
+        assertEquals(PACKAGE_NAME, mCredentials.packageName());
     }
 
     @Test
     public void testGetPid() {
-        assertEquals(myPid(), mCredentials.getPid());
+        assertEquals(myPid(), mCredentials.pid());
     }
 
     @Test
     public void testGetUid() {
-        assertEquals(myUid(), mCredentials.getUid());
+        assertEquals(myUid(), mCredentials.uid());
     }
 
     @Test
     public void testGetUri() {
-        assertEquals(CLIENT_URI, mCredentials.getUri());
-    }
-
-    @Test
-    public void testGetEntity() {
-        assertEquals(CLIENT, mCredentials.getEntity());
+        assertEquals(CLIENT_URI, mCredentials.uri());
     }
 }

@@ -24,17 +24,12 @@
 package org.eclipse.uprotocol.core.ubus;
 
 import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
-import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
-import static org.eclipse.uprotocol.core.internal.util.log.FormatterExt.stringify;
-import static org.eclipse.uprotocol.core.ubus.UBus.Component.logStatus;
 
 import android.os.IBinder;
-import android.util.Log;
 
 import androidx.annotation.NonNull;
 
-import org.eclipse.uprotocol.common.util.log.Key;
-import org.eclipse.uprotocol.v1.internal.ParcelableUEntity;
+import org.eclipse.uprotocol.uri.validator.UriFilter;
 import org.eclipse.uprotocol.v1.internal.ParcelableUMessage;
 import org.eclipse.uprotocol.v1.internal.ParcelableUStatus;
 import org.eclipse.uprotocol.v1.internal.ParcelableUUri;
@@ -47,10 +42,9 @@ public class UBusAdapter extends IUBus.Stub {
     }
 
     @Override
-    public ParcelableUStatus registerClient(String packageName, ParcelableUEntity entity, IBinder clientToken,
-            int flags, IUListener listener) {
+    public ParcelableUStatus registerClient(String packageName, ParcelableUUri clientUri, IBinder clientToken, int flags, IUListener listener) {
         try {
-            return new ParcelableUStatus(mUBus.registerClient(packageName, entity.getWrapped(),  clientToken, listener));
+            return new ParcelableUStatus(mUBus.registerClient(packageName, clientUri.getWrapped(), clientToken, listener));
         } catch (Exception e) {
             return new ParcelableUStatus(toStatus(e));
         }
@@ -75,31 +69,20 @@ public class UBusAdapter extends IUBus.Stub {
     }
 
     @Override
-    public ParcelableUMessage[] pull(ParcelableUUri uri, int count, int flags, IBinder clientToken) {
+    public ParcelableUStatus enableDispatching(ParcelableUUri sourceFilter, ParcelableUUri sinkFilter, int flags, IBinder clientToken) {
         try {
-            final ParcelableUMessage[] messages = mUBus.pull(uri.getWrapped(), count, flags, clientToken).stream()
-                    .map(ParcelableUMessage::new)
-                    .toArray(ParcelableUMessage[]::new);
-            return messages.length > 0 ? messages : null;
-        } catch (Exception e) {
-            logStatus(Log.ERROR, "pull", toStatus(e), Key.URI, stringify(uri.getWrapped()), Key.TOKEN, stringify(clientToken));
-            return null;
-        }
-    }
-
-    @Override
-    public ParcelableUStatus enableDispatching(ParcelableUUri uri, int flags, IBinder clientToken) {
-        try {
-            return new ParcelableUStatus(mUBus.enableDispatching(uri.getWrapped(), flags, clientToken));
+            final UriFilter filter = new UriFilter(sourceFilter.getWrapped(), sinkFilter.getWrapped());
+            return new ParcelableUStatus(mUBus.enableDispatching(filter, clientToken));
         } catch (Exception e) {
             return new ParcelableUStatus(toStatus(e));
         }
     }
 
     @Override
-    public ParcelableUStatus disableDispatching(ParcelableUUri uri, int flags, IBinder clientToken) {
+    public ParcelableUStatus disableDispatching(ParcelableUUri sourceFilter, ParcelableUUri sinkFilter, int flags, IBinder clientToken) {
         try {
-            return new ParcelableUStatus(mUBus.disableDispatching(uri.getWrapped(), flags, clientToken));
+            final UriFilter filter = new UriFilter(sourceFilter.getWrapped(), sinkFilter.getWrapped());
+            return new ParcelableUStatus(mUBus.disableDispatching(filter, clientToken));
         } catch (Exception e) {
             return new ParcelableUStatus(toStatus(e));
         }

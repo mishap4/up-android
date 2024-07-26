@@ -36,6 +36,7 @@ import android.util.Log;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.eclipse.uprotocol.core.TestBase;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.junit.Before;
 import org.junit.Test;
@@ -65,14 +66,14 @@ public class MessageCacheTest extends TestBase {
 
     @Test
     public void testAddMessage() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertTrue(mMessageCache.addMessage(message));
         assertEquals(message, mMessageCache.getMessage(RESOURCE_URI));
     }
 
     @Test
     public void testAddMessageSame() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         assertTrue(mMessageCache.addMessage(message));
         assertFalse(mMessageCache.addMessage(message));
         assertEquals(message, mMessageCache.getMessage(RESOURCE_URI));
@@ -86,7 +87,7 @@ public class MessageCacheTest extends TestBase {
 
     @Test
     public void testAddMessageWithCallback() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         final Consumer<UMessage> callback = mock(TestCallback.class);
         assertTrue(mMessageCache.addMessage(message, callback));
         assertEquals(message, mMessageCache.getMessage(RESOURCE_URI));
@@ -95,7 +96,7 @@ public class MessageCacheTest extends TestBase {
 
     @Test
     public void testAddMessageWithCallbackSame() {
-        final UMessage message = buildPublishMessage(RESOURCE_URI);
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         final Consumer<UMessage> callback = mock(TestCallback.class);
         assertTrue(mMessageCache.addMessage(message, callback));
         assertFalse(mMessageCache.addMessage(message, callback));
@@ -131,12 +132,12 @@ public class MessageCacheTest extends TestBase {
 
     @Test
     public void testGetMessageExpired() {
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE_URI, 1)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE_URI).withTtl(1).build()));
         sleep(DELAY_MS);
         assertNull(mMessageCache.getMessage(RESOURCE_URI));
 
         setLogLevel(Log.INFO);
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE_URI, 1)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE_URI).withTtl(1).build()));
         sleep(DELAY_MS);
         assertNull(mMessageCache.getMessage(RESOURCE_URI));
     }
@@ -145,10 +146,10 @@ public class MessageCacheTest extends TestBase {
     public void testGetTopics() {
         assertTrue(mMessageCache.getTopics().isEmpty());
 
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE_URI)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE_URI).build()));
         assertEquals(Set.of(RESOURCE_URI), mMessageCache.getTopics());
 
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE2_URI)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE2_URI).build()));
         assertEquals(Set.of(RESOURCE_URI, RESOURCE2_URI), mMessageCache.getTopics());
     }
 
@@ -157,10 +158,10 @@ public class MessageCacheTest extends TestBase {
         setLogLevel(Log.INFO);
         assertEquals(0, mMessageCache.size());
 
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE_URI)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE_URI).build()));
         assertEquals(1, mMessageCache.size());
 
-        assertTrue(mMessageCache.addMessage(buildPublishMessage(RESOURCE2_URI)));
+        assertTrue(mMessageCache.addMessage(UMessageBuilder.publish(RESOURCE2_URI).build()));
         assertEquals(2, mMessageCache.size());
 
         assertTrue(mMessageCache.removeMessage(RESOURCE2_URI));

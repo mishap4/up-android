@@ -21,18 +21,12 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.eclipse.uprotocol.core.usubscription;
 
 import androidx.annotation.NonNull;
 
 import org.eclipse.uprotocol.core.usubscription.v3.Update;
-import org.eclipse.uprotocol.v1.UUri;
 
 public interface SubscriptionListener {
-    void onSubscriptionChanged(@NonNull Update subscription);
-
-    void onTopicCreated(@NonNull UUri topic, @NonNull UUri publisher);
-
-    void onTopicDeprecated(@NonNull UUri topic);
+    void onSubscriptionChanged(@NonNull Update update);
 }

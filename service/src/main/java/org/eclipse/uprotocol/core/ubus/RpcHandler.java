@@ -30,12 +30,10 @@ import static org.eclipse.uprotocol.common.util.UStatusUtils.toStatus;
 import static org.eclipse.uprotocol.common.util.log.Formatter.join;
 import static org.eclipse.uprotocol.common.util.log.Formatter.stringify;
 import static org.eclipse.uprotocol.core.internal.util.CommonUtils.emptyIfNull;
-import static org.eclipse.uprotocol.core.internal.util.UMessageUtils.buildFailedResponseMessage;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.checkMethodUriValid;
 import static org.eclipse.uprotocol.core.internal.util.UUriUtils.isRemoteUri;
 import static org.eclipse.uprotocol.core.ubus.Dispatcher.checkAuthority;
 import static org.eclipse.uprotocol.uuid.factory.UuidUtils.getRemainingTime;
-import static org.eclipse.uprotocol.uuid.factory.UuidUtils.isExpired;
 
 import static java.util.concurrent.ConcurrentHashMap.newKeySet;
 
@@ -50,6 +48,9 @@ import org.eclipse.uprotocol.common.util.log.Key;
 import org.eclipse.uprotocol.core.ubus.client.Client;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager;
 import org.eclipse.uprotocol.core.ubus.client.ClientManager.RegistrationListener;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
+import org.eclipse.uprotocol.uri.serializer.UriSerializer;
+import org.eclipse.uprotocol.v1.UAttributes;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.UStatus;
@@ -192,7 +193,9 @@ class RpcHandler extends UBus.Component {
     private @NonNull ScheduledFuture<?> scheduleTimeoutResponseMessage(@NonNull UUID requestId, long timeout) {
         return mExecutor.schedule(() -> mRequests.computeIfPresent(requestId, (key, request) -> {
             Log.w(TAG, join(Key.EVENT, "Timeout while waiting for response", Key.REQUEST, stringify(request.message)));
-            final UMessage responseMessage = buildFailedResponseMessage(request.message, UCode.DEADLINE_EXCEEDED);
+            final UMessage responseMessage = UMessageBuilder.response(request.message.getAttributes())
+                    .withCommStatus(UCode.DEADLINE_EXCEEDED)
+                    .build();
             mDispatcher.dispatchTo(responseMessage, request.client);
             return null;
         }), timeout, TimeUnit.MILLISECONDS);
@@ -200,9 +203,10 @@ class RpcHandler extends UBus.Component {
 
     public @NonNull UStatus handleRequestMessage(@NonNull UMessage requestMessage, @NonNull Client client) {
         final long startTime = System.currentTimeMillis();
-        final UUID requestId = requestMessage.getAttributes().getId();
-        final UUri methodUri = requestMessage.getAttributes().getSink();
-        final long timeout = getRemainingTime(requestMessage.getAttributes()).orElse(0L);
+        final UAttributes attributes = requestMessage.getAttributes();
+        final UUID requestId = attributes.getId();
+        final UUri methodUri = attributes.getSink();
+        final long timeout = getRemainingTime(requestId, attributes.getTtl()).orElse(0L);
         try {
             checkAuthority(requestMessage.getAttributes().getSource(), client);
             checkArgument(timeout > 0, UCode.DEADLINE_EXCEEDED, "Message expired");
@@ -248,7 +252,6 @@ class RpcHandler extends UBus.Component {
         final UUri methodUri = responseMessage.getAttributes().getSource();
         try {
             checkAuthority(methodUri, server);
-            checkArgument(!isExpired(responseMessage.getAttributes()), UCode.DEADLINE_EXCEEDED, "Message expired");
             mRequests.compute(requestId, (key, request) -> {
                 checkNotNull(request, UCode.CANCELLED, "Request was either cancelled or expired");
                 request.timeoutFuture.cancel(false);
@@ -261,6 +264,11 @@ class RpcHandler extends UBus.Component {
         }
     }
 
+    public Client getCaller(@NonNull UUID requestId) {
+        final Request request = mRequests.computeIfPresent(requestId, (id, it) -> it);
+        return ((request != null) && request.client.isAlive()) ? request.client : null;
+    }
+
     public @NonNull Set<UUri> getMethods(@NonNull Client server) {
         return emptyIfNull(mMethodsByServer.get(server));
     }
@@ -270,7 +278,7 @@ class RpcHandler extends UBus.Component {
         if (args.length > 0) {
             if ("-s".equals(args[0])) {
                 if (args.length > 1) {
-                    dumpServer(writer, args[1]);
+                    dumpServer(writer, UriSerializer.deserialize(args[1]));
                     return;
                 }
             } else {
@@ -293,9 +301,9 @@ class RpcHandler extends UBus.Component {
         mMethodsByServer.keySet().forEach(server -> dumpServer(writer, server));
     }
 
-    private void dumpServer(@NonNull PrintWriter writer, @NonNull String flattenEntity) {
+    private void dumpServer(@NonNull PrintWriter writer, @NonNull UUri uri) {
         mMethodsByServer.keySet().stream()
-                .filter(server -> stringify(server.getEntity()).equals(flattenEntity))
+                .filter(server -> server.getUri().equals(uri))
                 .forEach(server -> dumpServer(writer, server));
     }
 

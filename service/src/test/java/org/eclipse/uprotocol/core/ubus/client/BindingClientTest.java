@@ -24,7 +24,6 @@
 package org.eclipse.uprotocol.core.ubus.client;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -38,6 +37,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import org.eclipse.uprotocol.core.TestBase;
 import org.eclipse.uprotocol.core.ubus.IUListener;
+import org.eclipse.uprotocol.transport.builder.UMessageBuilder;
 import org.eclipse.uprotocol.v1.UCode;
 import org.eclipse.uprotocol.v1.UMessage;
 import org.eclipse.uprotocol.v1.internal.ParcelableUMessage;
@@ -65,18 +65,13 @@ public class BindingClientTest extends TestBase {
     }
 
     @Test
-    public void testIsInternal() {
-        assertFalse(mClient.isInternal());
-    }
-
-    @Test
     public void testGetListener() {
         assertEquals(mListener, mClient.getListener());
     }
 
     @Test
     public void testSend() throws RemoteException {
-        final UMessage message = buildPublishMessage();
+        final UMessage message = UMessageBuilder.publish(RESOURCE_URI).build();
         mClient.send(message);
         verify(mListener, times(1)).onReceive(new ParcelableUMessage(message));
     }

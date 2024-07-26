@@ -21,28 +21,17 @@
  * SPDX-FileCopyrightText: 2023 General Motors GTO LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+package org.eclipse.uprotocol.core.usubscription.database
 
-package org.eclipse.uprotocol.core.usubscription;
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import org.eclipse.uprotocol.v1.UUri
 
-import androidx.annotation.NonNull;
-
-import org.eclipse.uprotocol.core.usubscription.v3.SubscriptionStatus;
-
-public class SubscriptionException extends RuntimeException {
-    public final SubscriptionStatus status;
-
-    public SubscriptionException(SubscriptionStatus status) {
-        this.status = status;
-    }
-
-    @NonNull
-    public SubscriptionStatus getStatus() {
-        return this.status;
-    }
-
-    @Override
-    @NonNull
-    public String getMessage() {
-        return this.status.getMessage();
+@Entity(tableName = ObserverRecord.TABLE_NAME)
+data class ObserverRecord(
+    @PrimaryKey val topic: UUri,
+) {
+    companion object {
+        const val TABLE_NAME = "observers"
     }
 }

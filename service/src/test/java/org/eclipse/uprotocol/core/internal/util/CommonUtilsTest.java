@@ -40,7 +40,6 @@ import java.util.Set;
 
 @RunWith(AndroidJUnit4.class)
 public class CommonUtilsTest extends TestBase {
-
     @Test
     public void testEmptyIfNullList() {
         final List<String> list = List.of("test");
